@@ -20,6 +20,7 @@ import org.valkyrienskies.core.api.ships.Wing
 import org.valkyrienskies.core.api.world.connectivity.ConnectionStatus
 import org.valkyrienskies.core.api.world.connectivity.SparseVoxelPosition
 import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
+import org.valkyrienskies.core.internal.world.chunks.VsiBlockTypes
 import org.valkyrienskies.mod.common.block.WingBlock
 import org.valkyrienskies.mod.common.config.ConfigType
 import org.valkyrienskies.mod.common.config.MassDatapackResolver
@@ -32,6 +33,7 @@ import java.util.function.IntFunction
 // NOTE: if we have block's in vs-core we should ask getVSBlock(blockstate: BlockStat): VSBlock since thatd be more handy
 //  altough we might want to allow null properties in VSBlock that is returned since we do want partial data fetching
 // https://github.com/ValkyrienSkies/Valkyrien-Skies-2/issues/25
+@Deprecated("Planned to be replaced by other api classes for defining properties in code.")
 interface BlockStateInfoProvider {
     val priority: Int
 
@@ -65,7 +67,7 @@ object BlockStateInfo {
 
         VSGameEvents.configUpdated.on { entries ->
             val defaultMassChanged = entries.any {
-                it.configType == ConfigType.SERVER && it.name == "defaultBlockMass"
+                it.configType == ConfigType.SERVER && it.name == "defaultBlockMass" // love how we invalidate cache only on mass change :clueless:
             }
 
             if (defaultMassChanged) {
@@ -85,8 +87,8 @@ object BlockStateInfo {
         fun get(blockState: BlockState): Pair<Double, VsiBlockType>? {
             val blockId = Block.getId(blockState)
 
-            if (blockId == -1) {
-                return null
+            if (blockId == 0) { // changed from -1 to 0 because that's what Block.getId returns if it fails
+                return null // why was it -1 before? no clue but it's a cooler number so i respect it
             }
 
             return blockStateCache.computeIfAbsent(blockId, IntFunction { iterateRegistry(blockState) })

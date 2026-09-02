@@ -24,10 +24,8 @@ import kotlin.math.roundToInt
  */
 object BlockShapeUtil {
 
-    // keep a map of voxelshape to solidblockshapes, and initialize it with some common shapes
-    private val collisionShapes: MutableMap<VoxelShape, SolidBlockShape?> = HashMap(generateCommonShapes())
-
-    private val dummyGetter = object: BlockGetter {
+    @JvmField
+    val dummyGetter = object: BlockGetter {
         override fun getHeight(): Int = 383
         override fun getMinBuildHeight(): Int = -64
         override fun getBlockEntity(blockPos: BlockPos): BlockEntity? = null
@@ -35,10 +33,8 @@ object BlockShapeUtil {
         override fun getFluidState(blockPos: BlockPos): FluidState = Fluids.EMPTY.defaultFluidState()
     }
 
-    /**
-     * i wonder what this does
-     */
-    private fun generateCommonShapes(): Map<VoxelShape, SolidBlockShape> {
+    @JvmStatic
+    fun generateCommonShapes(): Map<VoxelShape, SolidBlockShape> {
         val generatedShapes: MutableMap<VoxelShape, SolidBlockShape> = HashMap(generateOctantCollisionShapes(
             StairBlockAccessor.getBottomShapes() +
                 StairBlockAccessor.getTopShapes() +
@@ -157,6 +153,9 @@ object BlockShapeUtil {
     }
 
     @JvmField
+    val fullLodBoundingBox: AABBi = AABBi(0, 0, 0, 15, 15, 15)
+
+    @JvmField
     val fullBlockCollisionShape: SolidBlockShape = vsCore.newSolidStateBoxesShapeBuilder()
         .addCollisionPoints(listOf(
             CollisionPoint(.25f, .25f, .25f, .25f),
@@ -168,29 +167,40 @@ object BlockShapeUtil {
             CollisionPoint(.75f, .75f, .25f, .25f),
             CollisionPoint(.75f, .75f, .75f, .25f),
         ))
-        .addPositiveBox(AABBi(0, 0, 0, 15, 15, 15))
+        .addPositiveBox(fullLodBoundingBox)
         .build()
 
     @JvmField
-    val noCollisionShape: SolidBlockShape = vsCore.solidShapeUtils.generateShapeFromBoxes(mutableListOf())!!
+    val noCollisionShape: SolidBlockShape = vsCore.newSolidStateBoxesShapeBuilder()
+        .addCollisionPoints(listOf())
+        .addNegativeBox(fullLodBoundingBox)
+        .build()
+
 
     @JvmStatic
-    fun getCollisionShape(blockState: BlockState): SolidBlockShape {
-        val voxelShape: VoxelShape = blockState.getVoxelShape()
+    fun getShape(blockState: BlockState): VoxelShape {
+        return blockState.getShape(dummyGetter, BlockPos.ZERO)
+    }
 
-        return if (collisionShapes.contains(voxelShape)) {
-            collisionShapes[voxelShape]!!
+    @JvmStatic
+    fun getCollisionShape(blockState: BlockState): VoxelShape {
+        return blockState.getCollisionShape(dummyGetter, BlockPos.ZERO)
+    }
+
+    @JvmStatic
+    fun getShapeForVS(blockState: BlockState): VoxelShape {
+        val collisionShape = getCollisionShape(blockState)
+
+        return if (!collisionShape.isEmpty) {
+            collisionShape
         } else {
-            val generatedShape: SolidBlockShape? = generateShapeFromVoxel(voxelShape)
-            collisionShapes[voxelShape] = generatedShape
-            generatedShape ?: fullBlockCollisionShape
+            getShape(blockState)
         }
     }
 
-    fun BlockState.getVoxelShape(): VoxelShape = if (isSolid) {
-        getShape(dummyGetter, BlockPos.ZERO)
-    } else {
-        getCollisionShape(dummyGetter, BlockPos.ZERO)
+    @JvmStatic
+    fun getFluidShape(fluidState: FluidState): VoxelShape {
+        return fluidState.getShape(dummyGetter, BlockPos.ZERO)
     }
 
 }

@@ -5,9 +5,11 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.material.Fluid;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,22 +21,25 @@ import org.valkyrienskies.mod.common.config.VSGameConfig;
 import org.valkyrienskies.mod.mixinducks.feature.mass_tooltip.MassTooltipVisibility;
 import oshi.util.tuples.Pair;
 
-@Mixin(BlockItem.class)
-public class MixinBlockItem {
+@Mixin(Item.class)
+public class MixinItem {
     @Inject(method = "appendHoverText", at = @At("HEAD"))
-    private void ValkyrienSkies$addMassToTooltip(final ItemStack itemStack, final Level level,
+    private void valkyrienskies$addMassToTooltip(final ItemStack itemStack, final Level level,
         final List<Component> list, final TooltipFlag tooltipFlag, final CallbackInfo ci) {
         final MassTooltipVisibility visibility = VSGameConfig.CLIENT.getTooltip().getMassTooltipVisibility();
-        if (visibility.isVisible(tooltipFlag) && ClientBlockStateInfo.INSTANCE.getClientHasMassInfo()) {
-            try {
-                final BlockItem item = (BlockItem) itemStack.getItem();
-                final ClientBlockInfo info = ClientBlockStateInfo.INSTANCE.getBlockInfo(BuiltInRegistries.BLOCK.getKey(item.getBlock()));
-                final double mass = info != null ? info.getMass() : 1000;
-                list.add(Component.translatable("tooltip.valkyrienskies.mass")
-                    .append(VSGameConfig.CLIENT.getTooltip().getUseImperialUnits() ?
-                        getImperialText(mass) : ": " + mass + "kg").withStyle(ChatFormatting.DARK_GRAY));
-            } catch (final Exception ignored) {
-            }
+        if (!(visibility.isVisible(tooltipFlag) && ClientBlockStateInfo.INSTANCE.getClientHasMassInfo())) return;
+        Item item = itemStack.getItem();
+        if (item instanceof BlockItem blockItem) {
+            final ClientBlockInfo info = ClientBlockStateInfo.INSTANCE.getBlockInfo(BuiltInRegistries.BLOCK.getKey(blockItem.getBlock()));
+            final double mass = info != null ? info.getMass() : 1000;
+            list.add(Component.translatable("tooltip.valkyrienskies.mass")
+                .append(VSGameConfig.CLIENT.getTooltip().getUseImperialUnits() ?
+                    getImperialText(mass) : ": " + mass + "kg").withStyle(ChatFormatting.DARK_GRAY));
+        }
+
+        if (item instanceof BucketItemAccessor bucketItem) {
+            Fluid fluid = bucketItem.getContent(); // todo impl lol
+            list.add(Component.literal("contents: " + (fluid != null ? fluid.getClass().getSimpleName() : "empty")));
         }
     }
 

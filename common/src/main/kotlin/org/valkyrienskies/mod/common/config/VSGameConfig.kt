@@ -402,7 +402,7 @@ object VSGameConfig {
         @ConfigEntry(
             description = "If players can see block info (mass, friction, elasticity). Disabling this will also disable JEI search."
         )
-        var allowBlockInfo = true // they call me jade because i be showin block info
+        var allowBlockInfo = true // they call me jade cause i be showin block info
 
         @ConfigEntry(
             description = "Default mass for blocks that do not have it defined in data or code. Blocks with masses below 100 float in water"
@@ -423,6 +423,23 @@ object VSGameConfig {
             description = "Default block hardness (unused value, placeholder for later)"
         )
         var defaultBlockHardness = 1.0
+
+        @ConfigEntry(
+            description = "Default density coefficient for liquids."
+        )
+        var defaultLiquidDensity = 100.0
+
+        @ConfigEntry(
+            description = "Default drag coefficient for liquids. Higher values slow down ships more when they pass through liquids."
+        )
+        var defaultLiquidDragCoefficient = 0.3
+
+        @ConfigEntry(
+            description = "Default liquid velocity vector. This represents how much the liquid moves, affecting the ship."
+        )
+        var defaultLiquidVelocityX = 0.0
+        var defaultLiquidVelocityY = 0.0
+        var defaultLiquidVelocityZ = 0.0
 
         @ConfigEntry(
             description = "Target velocity (m/s) a piston push/pull applies to a ship's contact point"
@@ -545,6 +562,13 @@ object VSGameConfig {
                 max = 4.0
             )
             var setSplittingCommandPerms = 2
+
+            @ConfigEntry(
+                description = "The permission level required to use the /vs blockstate command",
+                min = 0.0,
+                max = 4.0
+            )
+            var blockstateCommandPerms = 2
         }
     }
 

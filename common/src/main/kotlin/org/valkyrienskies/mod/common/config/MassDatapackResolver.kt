@@ -436,6 +436,7 @@ object MassDatapackResolver : BlockStateInfoProvider {
                     // Create new solid block state
                     var solidState = vsCore.newSolidStateBuilder()
                         .shape(collisionShape)
+                        .mass(vsBlockStateInfo?.mass ?: VSGameConfig.SERVER.defaultBlockMass)
                         .elasticity(vsBlockStateInfo?.elasticity ?: VSGameConfig.SERVER.defaultBlockElasticity)
                         .friction(vsBlockStateInfo?.friction ?: VSGameConfig.SERVER.defaultBlockFriction)
                         .hardness(VSGameConfig.SERVER.defaultBlockHardness) // Unused for now, placeholder for later

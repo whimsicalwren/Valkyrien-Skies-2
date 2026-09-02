@@ -11,6 +11,9 @@ import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -25,6 +28,8 @@ import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.valkyrienskies.core.api.ships.ClientShip;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
+import org.valkyrienskies.mod.common.command.commands.BlockStateCommand;
+import org.valkyrienskies.mod.common.util.BlockShapeUtil;
 
 @Mixin(LevelRenderer.class)
 public abstract class MixinLevelRenderer {
@@ -65,12 +70,27 @@ public abstract class MixinLevelRenderer {
         final BlockState blockState, final CallbackInfo ci) {
         ci.cancel();
         final ClientShip ship = VSGameUtilsKt.getLoadedShipManagingPos(level, blockPos);
+        HitResult hit = entity.pick(20, 1.0f, true);
+        FluidState fluidState = null;
+        double fx = 0, fy = 0, fz = 0;
+        if (hit instanceof BlockHitResult b) {
+            fluidState = this.level.getFluidState(b.getBlockPos());
+            fx = b.getBlockPos().getX();
+            fy = b.getBlockPos().getY();
+            fz = b.getBlockPos().getZ();
+        }
         if (ship != null) {
             matrixStack.pushPose();
             transformRenderWithShip(ship.getRenderTransform(), matrixStack, blockPos, camX, camY, camZ);
             renderShape(matrixStack, vertexConsumer,
                 blockState.getShape(this.level, blockPos, CollisionContext.of(entity)),
                 0d, 0d, 0d, 0.0F, 0.0F, 0.0F, 0.4F);
+            if (BlockStateCommand.INSTANCE.getRender()) {
+                fx = blockPos.getX() - fx;
+                fy = blockPos.getY() - fy;
+                fz = blockPos.getZ() - fz;
+                renderShapes(matrixStack, vertexConsumer, 0d, 0d, 0d, blockState, fluidState, fx, fy, fz);
+            }
             matrixStack.popPose();
         } else {
             // vanilla
@@ -80,9 +100,33 @@ public abstract class MixinLevelRenderer {
                 (double) blockPos.getY() - camY,
                 (double) blockPos.getZ() - camZ,
                 0.0F, 0.0F, 0.0F, 0.4F);
+            if (BlockStateCommand.INSTANCE.getRender()) {
+                renderShapes(matrixStack, vertexConsumer,
+                    (double) blockPos.getX() - camX,
+                    (double) blockPos.getY() - camY,
+                    (double) blockPos.getZ() - camZ,
+                    blockState, fluidState, fx - camX, fy - camY, fz - camZ);
+            }
         }
     }
 
+    /**
+     * Utility method for rendering other stuff
+     */
+    @Unique
+    private static void renderShapes(PoseStack ms, VertexConsumer vertexConsumer, double x, double y, double z, BlockState blockState, @Nullable FluidState fluidState, @Nullable Double fx, @Nullable Double fy, @Nullable Double fz) {
+        renderShape(ms, vertexConsumer,
+            BlockShapeUtil.getShape(blockState),
+            x, y, z, 1.0F, 0.0F, 0.0F, 0.5F); // red
+        renderShape(ms, vertexConsumer,
+            BlockShapeUtil.getCollisionShape(blockState),
+            x, y, z, 0.0F, 1.0F, 0.0F, 0.5F); // green
+        if (fluidState != null) {
+            renderShape(ms, vertexConsumer,
+                BlockShapeUtil.getFluidShape(fluidState),
+                fx, fy, fz, 0.0F, 0.0F, 1.0F, 0.4F); // blue
+        }
+    }
 
     /**
      * This mixin makes block damage render on ships.
