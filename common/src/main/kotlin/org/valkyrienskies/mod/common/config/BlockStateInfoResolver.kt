@@ -5,40 +5,32 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import net.minecraft.commands.arguments.blocks.BlockStateParser
-import net.minecraft.core.BlockPos
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.packs.resources.ResourceManager
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener
 import net.minecraft.util.profiling.ProfilerFiller
-import net.minecraft.world.level.BlockGetter
-import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.block.entity.BlockEntity
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.material.FluidState
-import net.minecraft.world.level.material.Fluids
 import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.joml.primitives.AABBi
 import org.joml.primitives.AABBic
-import org.valkyrienskies.core.api.physics.blockstates.BoxBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.LiquidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.LiquidState
-import org.valkyrienskies.core.api.physics.blockstates.MediumState
 import org.valkyrienskies.core.api.physics.blockstates.SolidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.SolidState
 import org.valkyrienskies.core.internal.physics.blockstates.VsiBlockState
 import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
+import org.valkyrienskies.core.util.letOrElse
 import org.valkyrienskies.mod.common.config.MassDatapackResolver.decideDefaultPriority
 import org.valkyrienskies.mod.common.util.BlockShapeUtil
 import org.valkyrienskies.mod.common.vsCore
-import org.valkyrienskies.mod.util.DelegateLogger.provideDelegate
 import org.valkyrienskies.mod.util.logger
 import java.util.function.Predicate
 import java.util.regex.Pattern
 import kotlin.math.roundToInt
 
 data class SolidStateProperties (
-    val priority: Int,
     val mass: Double,
     val friction: Double,
     val elasticity: Double,
@@ -54,8 +46,7 @@ data class SolidStateProperties (
     }
 
     override fun hashCode(): Int { // hashbrowns are good but have you ever tried hashcodes
-        var result = priority
-        result = 31 * result + mass.hashCode()
+        var result = mass.hashCode()
         result = 31 * result + friction.hashCode()
         result = 31 * result + elasticity.hashCode()
         result = 31 * result + hardness.hashCode()
@@ -65,7 +56,6 @@ data class SolidStateProperties (
 
     companion object {
         fun defaultProperties(): SolidStateProperties = SolidStateProperties(
-            0,
             VSGameConfig.SERVER.defaultBlockMass,
             VSGameConfig.SERVER.defaultBlockFriction,
             VSGameConfig.SERVER.defaultBlockElasticity,
@@ -78,7 +68,6 @@ data class SolidStateProperties (
  * @see [LiquidState]
  */
 data class LiquidStateProperties (
-    val priority: Int,
     val density: Double,
     val dragCoefficient: Double,
     val velocity: Vector3d,
@@ -93,17 +82,16 @@ data class LiquidStateProperties (
     }
 
     override fun hashCode(): Int {
-        var result = priority
-        result = 31 * result + density.hashCode()
+        var result = density.hashCode()
         result = 31 * result + dragCoefficient.hashCode()
         result = 31 * result + noCollision.hashCode()
         result = 31 * result + velocity.hashCode()
+        result = 31 * result + shapeOverride.hashCode()
         return result
     }
 
     companion object {
         fun defaultProperties(): LiquidStateProperties = LiquidStateProperties(
-            0,
             VSGameConfig.SERVER.defaultLiquidDensity,
             VSGameConfig.SERVER.defaultLiquidDragCoefficient,
             Vector3d(
@@ -116,7 +104,6 @@ data class LiquidStateProperties (
 }
 
 data class DisplacementStateProperties (
-    val priority: Int,
     val shape: AABBic? = null,
 ) {
     override fun equals(other: Any?): Boolean {
@@ -127,18 +114,15 @@ data class DisplacementStateProperties (
     }
 
     override fun hashCode(): Int {
-        var result = priority
-        result = 31 * result + shape.hashCode()
-        return result
+        return shape.hashCode()
     }
 
     companion object {
-        fun defaultProperties(): DisplacementStateProperties = DisplacementStateProperties(0)
+        fun defaultProperties(): DisplacementStateProperties = DisplacementStateProperties()
     }
 }
 
 data class MediumStateProperties (
-    val priority: Int,
     val dragCoefficient: Double,
     val shape: AABBic? = null,
 ){
@@ -156,7 +140,7 @@ data class MediumStateProperties (
     }
 
     companion object {
-        fun defaultProperties(): MediumStateProperties = MediumStateProperties(0, VSGameConfig.SERVER.defaultLiquidDragCoefficient)
+        fun defaultProperties(): MediumStateProperties = MediumStateProperties(VSGameConfig.SERVER.defaultLiquidDragCoefficient)
     }
 }
 
@@ -193,6 +177,7 @@ data class BlockStateString (
 }
 
 data class BlockStateProperties (
+    val priority: Int,
     val solid: SolidStateProperties? = null,
     val liquid: LiquidStateProperties? = null,
     val displacement: DisplacementStateProperties? = null,
@@ -203,16 +188,6 @@ data class BlockStateProperties (
 object BlockStateInfoResolver {
     private val blockState2Properties: MutableMap<ResourceLocation, MutableMap<String, BlockStateProperties>> = HashMap()
     private val mcState2VsState: MutableMap<BlockState, VsiBlockState> = HashMap()
-
-    @JvmField
-    val defaultProperties: SolidStateProperties = SolidStateProperties(
-        0,
-        VSGameConfig.SERVER.defaultBlockMass,
-        VSGameConfig.SERVER.defaultBlockFriction,
-        VSGameConfig.SERVER.defaultBlockElasticity,
-        VSGameConfig.SERVER.defaultBlockHardness,
-    )
-
 
     fun BlockState.getBlockType(): VsiBlockType? {
         val vsState = mcState2VsState[this] ?: return null
@@ -257,12 +232,12 @@ object BlockStateInfoResolver {
         /**
          * The structure of a property entry. Used to determine how entries should be parsed.
          */
-        enum class StructureType {
-            BLOCK_BASIC,
-            BLOCK_COMPOUND,
-            BLOCK_STATES,
-            FLUID_BASIC,
-            FLUID_STATES,
+        enum class StructureType(val block: Boolean? = null) {
+            BLOCK_BASIC(true),
+            BLOCK_COMPOUND(true),
+            BLOCK_STATES(true),
+            FLUID_BASIC(false),
+            FLUID_STATES(false),
             ERROR;
 
             fun toStructure(): Structure {
@@ -288,6 +263,10 @@ object BlockStateInfoResolver {
                 return warn != null
             }
 
+            fun isBlock(): Boolean {
+                return !isError() && type.block!!
+            }
+
             companion object {
                 /**
                  * Indicates that a problem has occurred with the entry, and that we should skip this entry.
@@ -298,6 +277,7 @@ object BlockStateInfoResolver {
 
                 /**
                  * Indicates that a problem has occurred with the entry, but it should be safe to parse.
+                 * This means that when we return the warning, we should also have fixed the problem.
                  */
                 fun warn(type: StructureType, string: String): Structure {
                     return Structure(type, warn = string)
@@ -360,25 +340,26 @@ object BlockStateInfoResolver {
                         Structure.error("Solid state in block $id is invalid!")
                     // solid states are kinda more important so if this is invalid we should just completely error instead of keeping the medium state.
                     else // solid is valid but medium isn't
-                        Structure.warn(StructureType.BLOCK_COMPOUND, "Medium state in block $id is invalid")
+                        json.remove("medium")
+                        Structure.warn(StructureType.BLOCK_COMPOUND, "Medium state in block $id is invalid, but solid state is.")
                 }
             }
 
             // some utility stuff for determining the main structure of the entry
-            fun JsonObject.basicB(): Boolean = this.hasAny(blockValues)
-            fun JsonObject.basicF(): Boolean = this.hasAny(fluidValues)
+            fun JsonObject.basic(block: Boolean = true): Boolean = if (block) this.hasAny(blockValues) else this.hasAny(fluidValues)
             fun JsonObject.compound(): Boolean = this.hasAny("solid", "medium")
 
 
             return when (idType) {
                 IdType.BLOCK -> {
-                    val toReturn: Structure = if (json.basicB()) {
+                    val toReturn: Structure = if (json.basic()) {
                         StructureType.BLOCK_BASIC.toStructure() // basic structure, same as old version
                     } else if (json.compound()) {
                         determineCompoundBlockStructure(json, id)
                     } else if (json.has("states")) {
                         val states = json["states"].asJsonObject
                         // check to make sure we have a valid default state, otherwise return an error structure
+                        // technically this check will succeed if the default state has solid or medium but the internal format of those is invalid, we'll just do that check later.
                         if (!states.has("default"))
                             Structure.error("states object for block $id does not have a default state, which is required.")
                         if (!states["default"].asJsonObject.hasAny(blockValues) && !states["default"].asJsonObject.hasAny("solid", "medium"))
@@ -394,17 +375,10 @@ object BlockStateInfoResolver {
                             }
                         }
 
-                        if (states.size() == 1) // size is one (only default)
-                            if (fullSize > 1) { // and the previous size was larger, meaning we removed all states save for default state
-                                Structure.warn(StructureType.BLOCK_STATES, "The default state in block $id is the only valid state!")
-                            } else {
-                                StructureType.BLOCK_STATES.toStructure()
-                            }
-
                         val state2StructureType = mutableMapOf<String, StructureType>()
                         states.asMap().forEach { (state, json) ->
                             json as JsonObject
-                            if (json.basicB())
+                            if (json.basic())
                                 state2StructureType[state] = StructureType.BLOCK_BASIC
                             else if (json.compound()) {
                                 val structure = determineCompoundBlockStructure(json, "$id[$state]")
@@ -412,22 +386,24 @@ object BlockStateInfoResolver {
                                 if (structure.isError()) { // since this is only one state we just discard the state instead of the whole thing if it errors
                                     logger.error("error while parsing $id[$state]: ${structure.error}")
                                     states.remove(state)
-                                } else if (structure.isWarn()) {
+                                } else if (structure.isWarn()) { // display the warning but still add it anyways
                                     logger.warn("warning while parsing $id[$state]: ${structure.warn}")
                                     state2StructureType[state] = structure.type
                                 } else {
                                     state2StructureType[state] = structure.type
                                 }
-                            } else {
+                            } else { // state format isn't valid here for obvious reasons
                                 logger.error("invalid format for $id[$state], skipping this state")
                                 states.remove(state)
                             }
                         }
 
-                        Structure.error("Could not determine structure for block $id") // sowwy >.<
-                    } else {
-                        Structure.error("Could not determine structure for block $id") // sowwy >.<
-                    }
+                        if (states.size() == 0) {
+                            Structure.error("No valid blockstates for $id!")
+                        }
+
+                        Structure(StructureType.BLOCK_STATES, warn = if (states.size() == 1 && fullSize > 1) "The default state in block $id is the only valid state!" else null, state2StructureType = state2StructureType)
+                    } else Structure.error("Could not determine structure for block $id") // sowwy >.<
                     toReturn
                 }
                 IdType.FLUID -> {
@@ -449,12 +425,15 @@ object BlockStateInfoResolver {
 
         private fun parseShape(jsonArray: JsonArray?): AABBic? = if (jsonArray != null) if (jsonArray.size() == 6) try { parseShapeSingle(jsonArray) } catch (e: Exception) { null } else null else null // fuck you.
 
+        /**
+         * Parses a single entry for a block or fluid.
+         */
         private fun parse(element: JsonElement, origin: ResourceLocation, index: Int = -1) {
             val json: JsonObject = element.asJsonObject
             val idType = determineId(json)
 
             if (idType == IdType.NONE) {
-                var message = "Error parsing $origin: Could not find member for a valid fluid, block, or tag id"
+                var message = "error parsing $origin: Could not find member for a valid fluid, block, or tag id"
                 if (index >= 0) {
                     message += " in element $index" // tell the user which element this error occurred in
                 }
@@ -463,12 +442,83 @@ object BlockStateInfoResolver {
             }
 
             val id = idType.getId(json)
-
+            if (!ResourceLocation.isValidResourceLocation(id)) {
+                logger.error("error while parsing entry: $id is not a valid id!")
+            }
             val priority = json["priority"]?.asInt ?: decideDefaultPriority(origin)
 
+            val structure = determineStructure(json, idType, id)
+            if (structure.isError()) {
+                logger.error("error while parsing entry for $id: ${structure.error}. this entry will be skipped.")
+                return
+            } else if (structure.isWarn())
+                logger.warn("warning while parsing entry for $id: ${structure.warn}")
+            // all clear
+
+            /**
+             * add properties to the map for a given block.
+             * creates a new [MutableMap] for the given [id] if one is not already present, then computes the value for [key].
+             * if the value associated with the given key is null, we put [propertiesToPut] to that key.
+             * if there is a value associated with the given key, we compare the priority of both and put [propertiesToPut] if its priority is higher than the existing value.
+             */
+            fun putProperties(id: String, key: String, propertiesToPut: BlockStateProperties) {
+                blockState2Properties.computeIfAbsent(ResourceLocation.of(id, ':')) { mutableMapOf() }.compute(key) { _, properties ->
+                    val toPut: BlockStateProperties = if (properties == null)
+                        propertiesToPut
+                    else
+                        if (propertiesToPut.priority > properties.priority)
+                            propertiesToPut
+                        else
+                            propertiesToPut
+
+                    toPut
+                }
+            }
+
+            when (structure.type) {
+                StructureType.BLOCK_BASIC -> {
+                    putProperties(id, "default", BlockStateProperties(priority, parseSolid(json)))
+                }
+                StructureType.BLOCK_COMPOUND -> {
+                    putProperties(id, "default", BlockStateProperties(priority,
+                        solid = if (json.has("solid")) parseSolid(json.getAsJsonObject("solid")) else null,
+                        medium = if (json.has("medium")) parseMedium(json.getAsJsonObject("medium")) else null
+                    ))
+                }
+                StructureType.BLOCK_STATES -> {
+                    structure.state2StructureType!!.forEach { (state, type) ->
+                        when (type) {
+                            StructureType.BLOCK_BASIC -> {
+                                putProperties(id, state, BlockStateProperties(priority, parseSolid(json.getAsJsonObject(state))))
+                            }
+                            StructureType.BLOCK_COMPOUND -> {
+                                val stateJson = json.getAsJsonObject(state)
+                                putProperties(id, "default", BlockStateProperties(priority,
+                                    solid = if (stateJson.has("solid")) parseSolid(stateJson.getAsJsonObject("solid")) else null,
+                                    medium = if (stateJson.has("medium")) parseMedium(stateJson.getAsJsonObject("medium")) else null
+                                ))
+                            }
+                            else -> {
+                                logger.error("what are you doing this should be impossible to reach wtf (id: $id, index: $index, origin: $origin)")
+                            }
+                        }
+                    }
+                }
+                StructureType.FLUID_BASIC -> {
+
+                }
+                StructureType.FLUID_STATES -> {
+
+                }
+                else -> {
+                    logger.error(
+                        "this should be completely impossible to trigger, please report to devs (id: $id, index: $index, origin: $origin)"
+                    )
+                }
+            }
         }
 
-        private fun parseBlock(json: JsonObject, priority: Int): SolidStateProperties {
+        private fun parseSolid(json: JsonObject): SolidStateProperties {
             val mass = json["mass"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockMass
             val friction = json["friction"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockFriction
             val elasticity = json["elasticity"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockElasticity
@@ -478,17 +528,17 @@ object BlockStateInfoResolver {
             val shapeOverrideJson = json["shape_override"]
             val shapeOverride = parseShape(json["shape_override"]?.asJsonArray).let { vsCore.solidShapeUtils.generateShapeFromBoxes(mutableListOf(parseShapeSingle(shapeOverrideJson.asJsonArray))) }
 
-            return SolidStateProperties(priority, mass, friction, elasticity, hardness, noCollision, shapeOverride)
+            return SolidStateProperties(mass, friction, elasticity, hardness, noCollision, shapeOverride)
         }
 
-        private fun parseMedium(json: JsonObject, priority: Int): MediumStateProperties {
+        private fun parseMedium(json: JsonObject): MediumStateProperties {
             val dragCoefficient = json["drag"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockElasticity
             val shape = parseShape(json["shape"]?.asJsonArray)
 
-            return MediumStateProperties(priority, dragCoefficient, shape)
+            return MediumStateProperties(dragCoefficient, shape)
         }
 
-        private fun parseFluid(json: JsonObject, priority: Int): LiquidStateProperties {
+        private fun parseFluid(json: JsonObject): LiquidStateProperties {
             val density = json["density"]?.asDouble ?: VSGameConfig.SERVER.defaultLiquidDensity
             val dragCoefficient = json["drag"]?.asDouble ?: VSGameConfig.SERVER.defaultLiquidDragCoefficient
 
@@ -506,7 +556,7 @@ object BlockStateInfoResolver {
             val noCollision = json["no_collision"]?.asBoolean ?: false
             val shapeOverride = parseShape(json["shape_override"]?.asJsonArray)
 
-            return LiquidStateProperties(priority, density, dragCoefficient, velocity, noCollision, shapeOverride)
+            return LiquidStateProperties(density, dragCoefficient, velocity, noCollision, shapeOverride)
         }
     }
 
