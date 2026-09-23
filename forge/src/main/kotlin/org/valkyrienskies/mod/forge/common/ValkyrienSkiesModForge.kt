@@ -384,6 +384,9 @@ class ValkyrienSkiesModForge {
 
     private fun tagsUpdated(event: TagsUpdatedEvent) {
         VSGameEvents.tagsAreLoaded.emit(Unit)
+        if (!VSGameConfig.SERVER.useLegacyDatapackSystem) {
+            BlockStateInfoResolver.loadTags()
+        }
     }
 
     private fun playerJoin(event: PlayerEvent.PlayerLoggedInEvent) {
