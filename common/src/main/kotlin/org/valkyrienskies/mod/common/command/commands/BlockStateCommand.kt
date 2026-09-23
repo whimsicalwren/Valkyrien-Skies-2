@@ -9,15 +9,16 @@ import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Component.translatable
 import net.minecraft.network.chat.MutableComponent
 import net.minecraft.world.level.block.state.BlockState
+import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.phys.BlockHitResult
 import org.valkyrienskies.core.internal.physics.blockstates.VsiBlockState
 import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
 import org.valkyrienskies.mod.common.config.BlockStateInfoResolver
-import org.valkyrienskies.mod.common.config.BlockStateInfoResolver.getBlockType
 import org.valkyrienskies.mod.common.config.MassDatapackResolver
 import org.valkyrienskies.mod.common.config.VSGameConfig
 import org.valkyrienskies.mod.common.util.BlockShapeUtil
 import org.valkyrienskies.mod.common.vsCore
+import org.valkyrienskies.mod.common.config.BlockStateInfoResolver.serializeFluid
 
 object BlockStateCommand {
 
@@ -49,7 +50,26 @@ object BlockStateCommand {
                 1
             })
             .executes {
-                getBlockState(it)
+                fun send(s: String) {
+                    it.source.sendSuccess({ Component.literal(s) }, false)
+                }
+                val hit = it.source.playerOrException.pick(20.0, 1.0f, true)
+                val fluidState: FluidState?
+                val blockState: BlockState?
+                if (hit is BlockHitResult) {
+                    blockState = it.source.level.getBlockState(hit.blockPos)
+                    fluidState = it.source.level.getFluidState(hit.blockPos)
+                    if (blockState != null) {
+                        send("Block: ${BlockStateParser.serialize(blockState)}")
+                        if (blockState.fluidState != null) {
+                            send("Block (fluid): ${serializeFluid(blockState.fluidState)}")
+                        }
+                    }
+                    if (fluidState != null) {
+                        send("Fluid: ${serializeFluid(fluidState)}")
+                    }
+                }
+                1
             }
         )
     }

@@ -442,6 +442,11 @@ object VSGameConfig {
         var defaultLiquidVelocityZ = 0.0
 
         @ConfigEntry(
+            description = "Whether to use the new datapack system or legacy system."
+        )
+        var useLegacyDatapackSystem = false
+
+        @ConfigEntry(
             description = "Target velocity (m/s) a piston push/pull applies to a ship's contact point"
         )
         var pistonPushSpeed = 10.2

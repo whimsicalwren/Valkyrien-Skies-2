@@ -29,11 +29,7 @@ import org.valkyrienskies.mod.common.hooks.VSGameEvents
 import org.valkyrienskies.mod.common.util.BuoyancyHandlerAttachment
 import java.util.function.IntFunction
 
-// Other mods can then provide weights and types based on their added content
-// NOTE: if we have block's in vs-core we should ask getVSBlock(blockstate: BlockStat): VSBlock since thatd be more handy
-//  altough we might want to allow null properties in VSBlock that is returned since we do want partial data fetching
-// https://github.com/ValkyrienSkies/Valkyrien-Skies-2/issues/25
-@Deprecated("Planned to be replaced by other api classes for defining properties in code.")
+@Deprecated("Unless absolutely needed, it is recommended to use the datapack system as it can handle nearly all of the functionality of this.")
 interface BlockStateInfoProvider {
     val priority: Int
 

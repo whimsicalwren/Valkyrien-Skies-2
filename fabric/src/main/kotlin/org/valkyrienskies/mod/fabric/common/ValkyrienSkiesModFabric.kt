@@ -66,6 +66,7 @@ import org.valkyrienskies.mod.common.blockentity.TestAntigravBlockEntity
 import org.valkyrienskies.mod.common.blockentity.TestHingeBlockEntity
 import org.valkyrienskies.mod.common.blockentity.TestThrusterBlockEntity
 import org.valkyrienskies.mod.common.command.VSCommands
+import org.valkyrienskies.mod.common.config.BlockStateInfoResolver
 import org.valkyrienskies.mod.common.config.DimensionParametersResolver
 import org.valkyrienskies.mod.common.config.MassDatapackResolver
 import org.valkyrienskies.mod.common.config.SlugDatapackResolver
@@ -287,7 +288,7 @@ class ValkyrienSkiesModFabric : ModInitializer {
         }
 
         // registering data loaders
-        val loader1 = MassDatapackResolver.loader // the get makes a new instance so get it only once
+        val loader1 = if (VSGameConfig.SERVER.useLegacyDatapackSystem) MassDatapackResolver.loader else BlockStateInfoResolver.loader // the get makes a new instance so get it only once
         val loader2 = VSEntityHandlerDataLoader // the get makes a new instance so get it only once
         val loader3 = DimensionParametersResolver
         val loader4 = SlugDatapackResolver.loader

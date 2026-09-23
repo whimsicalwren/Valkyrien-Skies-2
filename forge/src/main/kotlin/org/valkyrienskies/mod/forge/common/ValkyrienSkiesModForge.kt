@@ -64,6 +64,7 @@ import org.valkyrienskies.mod.common.blockentity.TestAntigravBlockEntity
 import org.valkyrienskies.mod.common.blockentity.TestHingeBlockEntity
 import org.valkyrienskies.mod.common.blockentity.TestThrusterBlockEntity
 import org.valkyrienskies.mod.common.command.VSCommands
+import org.valkyrienskies.mod.common.config.BlockStateInfoResolver
 import org.valkyrienskies.mod.common.config.DimensionParametersResolver
 import org.valkyrienskies.mod.common.config.MassDatapackResolver
 import org.valkyrienskies.mod.common.config.SlugDatapackResolver
@@ -309,7 +310,7 @@ class ValkyrienSkiesModForge {
 
     private fun registerResourceManagers(event: AddReloadListenerEvent) {
         event.addListener(SlugDatapackResolver.loader)
-        event.addListener(MassDatapackResolver.loader)
+        event.addListener(if (VSGameConfig.SERVER.useLegacyDatapackSystem) MassDatapackResolver.loader else BlockStateInfoResolver.loader)
         event.addListener(VSEntityHandlerDataLoader)
         event.addListener(DimensionParametersResolver)
     }
