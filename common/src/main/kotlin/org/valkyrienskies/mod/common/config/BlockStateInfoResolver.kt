@@ -24,7 +24,6 @@ import org.joml.primitives.AABBic
 import org.valkyrienskies.core.api.physics.blockstates.LiquidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.LiquidState
 import org.valkyrienskies.core.api.physics.blockstates.DisplacementState
-import org.valkyrienskies.core.api.physics.blockstates.MediumState
 import org.valkyrienskies.core.api.physics.blockstates.SolidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.SolidState
 import org.valkyrienskies.core.internal.physics.blockstates.VsiBlockState
@@ -117,7 +116,9 @@ data class LiquidStateProperties (
 /**
  * @see [DisplacementState]
  */
-data class DisplacementStateProperties (val shape: AABBic? = null) {
+data class DisplacementStateProperties (
+    val shape: AABBic? = null
+) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is DisplacementStateProperties) return false
@@ -135,7 +136,7 @@ data class DisplacementStateProperties (val shape: AABBic? = null) {
 }
 
 /**
- * @see [MediumState]
+ * Liquid state in a costume until MediumState gets implemented
  */
 data class MediumStateProperties (
     val dragCoefficient: Double,
@@ -159,7 +160,7 @@ data class MediumStateProperties (
     }
 }
 
-data class BlockStateProperties(
+data class BlockStateProperties (
     val priority: Int,
     val solid: SolidStateProperties? = null,
     val liquid: LiquidStateProperties? = null,
@@ -167,7 +168,7 @@ data class BlockStateProperties(
     val medium: MediumStateProperties? = null,
 )
 
-data class TagProperties(
+data class TagProperties (
     val properties: BlockStateProperties,
     val exclude: Set<ResourceLocation>,
     val block: Boolean
@@ -180,6 +181,10 @@ object BlockStateInfoResolver {
     private val blockState2Properties: MutableMap<ResourceLocation, MutableMap<String, BlockStateProperties>> = HashMap()
     private val tag2Properties: MutableMap<ResourceLocation, TagProperties> = HashMap()
     private val mcState2VsState: MutableMap<BlockState, VsiBlockState> = HashMap()
+
+    fun <K, V> Map<K, V>.getOrOther(key: K, other: K): V? {
+        return if (key == other) get(key) else get(key) ?: get(other)
+    }
 
     val loader get() = BlockStateInfoDataLoader()
 
@@ -195,7 +200,7 @@ object BlockStateInfoResolver {
             if (tag != null) {
                 if (!tag.isPresent) {
                     // todo: i am going to make a pr to improve handing compat and installed mods, with it i will add a way to check loaded mods, and change this so that it only warns when the namespace is one of a loaded mod
-                    // avoid logspam of the previous loader by only warning for minecraft tags
+                    // avoid logspam of the previous loader by only warning for minecraft tags (see above)
                     if (tagId.namespace == "minecraft") {
                         logger.warn("Tag '$tagId' does not exist!")
                         return@forEach
@@ -215,6 +220,9 @@ object BlockStateInfoResolver {
         }
     }
 
+    /**
+     * [BlockStateParser.serialize] for fluid states
+     */
     fun serializeFluid(fluidState: FluidState): String {
         val stringBuilder = StringBuilder(fluidState.holder().unwrapKey().map { key -> key.location().toString() }.orElse("empty"))
         if (fluidState.properties.isNotEmpty()) {
@@ -280,7 +288,7 @@ object BlockStateInfoResolver {
 
     fun blockStateToString(raw: String): Pair<ResourceLocation, String> {
         if (raw.indexOf('[') == -1) {
-            return Pair(ResourceLocation(raw), "default")
+            return Pair(ResourceLocation.of(raw, ':'), "default")
             // if a blockstate has no properties, the parser will not append the brackets to it, so we can use that as a check
             // since indexOf returns -1 if the char does not exist in the string.
         }
@@ -291,7 +299,7 @@ object BlockStateInfoResolver {
 
     fun getProperties(blockState: BlockState): BlockStateProperties? {
         val string = blockStateToString(blockState)
-        return blockState2Properties[string.a]?.get(string.b)
+        return blockState2Properties[string.a]?.getOrOther(string.b, "default")
     }
 
     fun getProperties(raw: String): BlockStateProperties? {
@@ -322,7 +330,7 @@ object BlockStateInfoResolver {
                 }
             }
         }
-        // region i don't want to scroll through this it's annoying
+
         class MassJsonParseException(override val message: String, val id: String? = null) : Exception(message) {
             fun getParseError(): String {
                 return if (id == null) {
@@ -565,7 +573,6 @@ object BlockStateInfoResolver {
                 IdType.NONE -> throw MassJsonParseException("how") // this shouldn't be possible but we're checking anyways because i have anxiety
             }
         }
-        // endregion
 
         /**
          * Parses a single entry for a block or fluid.
@@ -699,8 +706,10 @@ object BlockStateInfoResolver {
         private fun parseShape(jsonArray: JsonElement): AABBic? =
             if (jsonArray.isJsonArray) {
                 jsonArray as JsonArray
-                AABBi(jsonArray[0].asInt, jsonArray[1].asInt, jsonArray[2].asInt,
-                    jsonArray[3].asInt, jsonArray[4].asInt, jsonArray[5].asInt)
+                if (jsonArray.size() != 6) null else {
+                    AABBi(jsonArray[0].asInt, jsonArray[1].asInt, jsonArray[2].asInt,
+                        jsonArray[3].asInt, jsonArray[4].asInt, jsonArray[5].asInt)
+                }
             } else null
 
         private fun parseTagExclusions(json: JsonObject): Set<ResourceLocation> {
@@ -801,26 +810,8 @@ object BlockStateInfoResolver {
 
     }
 
-
-    fun JsonObject.hasAll(members: Iterable<String>): Boolean = members.all { has(it) }
-
     fun JsonObject.hasAny(members: Iterable<String>): Boolean = members.any { has(it) }
-
-    fun JsonObject.returnAllPresent(members: Iterable<String>): List<String> = members.filter { has(it) }
-
-    fun JsonObject.returnAllAbsent(members: Iterable<String>): List<String> = members.filter { !has(it) }
-
-
-    fun JsonObject.hasAll(vararg members: String): Boolean = hasAll(members.asIterable())
     fun JsonObject.hasAny(vararg members: String): Boolean = hasAny(members.asIterable())
-    fun JsonObject.returnAllPresent(vararg members: String): List<String> = returnAllPresent(members.asIterable())
-    fun JsonObject.returnAllAbsent(vararg members: String): List<String> = returnAllAbsent(members.asIterable())
-
-    fun <T> List<T>.readable(open: String = "[", close: String = "]"): String {
-        var string: String = ""
-        forEach { string += it.toString() }
-        return open + string + close
-    }
 
     private val logger by logger()
 

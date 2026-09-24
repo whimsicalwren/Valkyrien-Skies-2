@@ -390,12 +390,14 @@ class ValkyrienSkiesModForge {
     }
 
     private fun playerJoin(event: PlayerEvent.PlayerLoggedInEvent) {
-        if (event.entity is ServerPlayer) {
-            val player: MinecraftPlayer = event.entity.playerWrapper
-            if (VSGameConfig.SERVER.allowBlockInfo) {
-                MassDatapackResolver.syncBlockStates(player)
-            } else {
-                MassDatapackResolver.clearBlockStates(player)
+        if (VSGameConfig.SERVER.useLegacyDatapackSystem) {
+            if (event.entity is ServerPlayer) {
+                val player: MinecraftPlayer = event.entity.playerWrapper
+                if (VSGameConfig.SERVER.allowBlockInfo) {
+                    MassDatapackResolver.syncBlockStates(player)
+                } else {
+                    MassDatapackResolver.clearBlockStates(player)
+                }
             }
         }
     }

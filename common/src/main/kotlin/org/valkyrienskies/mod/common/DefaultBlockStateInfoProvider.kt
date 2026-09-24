@@ -19,7 +19,8 @@ object DefaultBlockStateInfoProvider : BlockStateInfoProvider {
         if (blockState.isAir) return vsCore.blockTypes.air
 
         val block = blockState.block
-        if (block is LiquidBlock) return vsCore.blockTypes.liquid
+        if (block is LiquidBlock) return vsCore.blockTypes.liquid // requires local core
+        //if (block is LiquidBlock) return vsCore.blockTypes.water // normal core alternative
         return if (blockState.isSolid) vsCore.blockTypes.solid else vsCore.blockTypes.air
     }
 }
