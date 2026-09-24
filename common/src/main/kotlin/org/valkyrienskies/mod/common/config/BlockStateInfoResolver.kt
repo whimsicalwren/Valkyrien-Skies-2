@@ -37,6 +37,8 @@ import java.util.function.Predicate
 import java.util.regex.Pattern
 import kotlin.math.roundToInt
 
+// massive fucking file oml
+
 /**
  * @see [SolidState]
  */
@@ -203,8 +205,8 @@ object BlockStateInfoResolver {
                     // avoid logspam of the previous loader by only warning for minecraft tags (see above)
                     if (tagId.namespace == "minecraft") {
                         logger.warn("Tag '$tagId' does not exist!")
-                        return@forEach
                     }
+                    return@forEach
                 }
 
                 tag.get().forEach {
@@ -304,7 +306,7 @@ object BlockStateInfoResolver {
 
     fun getProperties(raw: String): BlockStateProperties? {
         val string = blockStateToString(raw)
-        return blockState2Properties[string.a]?.get(string.b)
+        return blockState2Properties[string.a]?.getOrOther(string.b, "default")
     }
 
     fun BlockState.getBlockType(): VsiBlockType? {
@@ -402,7 +404,7 @@ object BlockStateInfoResolver {
         // matches if the string is "default", or if it matches "key=value,key2=value2,etc"
         val stateRegex: Predicate<String> = Pattern.compile("^(default|\\w+=[^,=]+(,\\w+=[^,=]+)*)$").asPredicate()
         // matches the format of a resource location ("namespace:path")
-        val resourceRegex: Predicate<String> = Pattern.compile("^[a-z_]+:[a-z_]+$").asPredicate()
+        val resourceRegex: Predicate<String> = Pattern.compile("^[a-z_]+:[a-z_0-9/]+$").asPredicate()
 
         val blockValues = listOf("mass", "friction", "elasticity", "hardness", "no_collision", "shape_override")
         val mediumValues = listOf("drag", "shape")
