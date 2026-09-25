@@ -21,13 +21,14 @@ import net.minecraft.world.phys.shapes.VoxelShape
 import org.joml.Vector3d
 import org.joml.primitives.AABBi
 import org.joml.primitives.AABBic
-import org.valkyrienskies.core.api.physics.blockstates.LiquidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.LiquidState
 import org.valkyrienskies.core.api.physics.blockstates.DisplacementState
 import org.valkyrienskies.core.api.physics.blockstates.SolidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.SolidState
 import org.valkyrienskies.core.internal.physics.blockstates.VsiBlockState
 import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
+import org.valkyrienskies.mod.api_impl.events.RegisterBlockStateEventImpl
+import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.config.MassDatapackResolver.decideDefaultPriority
 import org.valkyrienskies.mod.common.util.BlockShapeUtil
 import org.valkyrienskies.mod.common.vsCore
@@ -83,20 +84,18 @@ data class LiquidStateProperties (
     val density: Double,
     val dragCoefficient: Double,
     val velocity: Vector3d,
-    val noCollision: Boolean = false,
     val shapeOverride: AABBic? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is LiquidStateProperties) return false
 
-        return density == other.density && dragCoefficient == other.dragCoefficient && velocity == other.velocity && noCollision == other.noCollision && shapeOverride == other.shapeOverride
+        return density == other.density && dragCoefficient == other.dragCoefficient && velocity == other.velocity && shapeOverride == other.shapeOverride
     }
 
     override fun hashCode(): Int {
         var result = density.hashCode()
         result = 31 * result + dragCoefficient.hashCode()
-        result = 31 * result + noCollision.hashCode()
         result = 31 * result + velocity.hashCode()
         result = 31 * result + shapeOverride.hashCode()
         return result
@@ -106,11 +105,7 @@ data class LiquidStateProperties (
         fun defaultProperties(): LiquidStateProperties = LiquidStateProperties(
             VSGameConfig.SERVER.defaultLiquidDensity,
             VSGameConfig.SERVER.defaultLiquidDragCoefficient,
-            Vector3d(
-                VSGameConfig.SERVER.defaultLiquidVelocityX,
-                VSGameConfig.SERVER.defaultLiquidVelocityY,
-                VSGameConfig.SERVER.defaultLiquidVelocityZ
-            )
+            Vector3d()
         )
     }
 }
@@ -183,6 +178,8 @@ object BlockStateInfoResolver {
     private val blockState2Properties: MutableMap<ResourceLocation, MutableMap<String, BlockStateProperties>> = HashMap()
     private val tag2Properties: MutableMap<ResourceLocation, TagProperties> = HashMap()
     private val mcState2VsState: MutableMap<BlockState, VsiBlockState> = HashMap()
+
+    val blockStateData: Collection<VsiBlockState> = mcState2VsState.values
 
     fun <K, V> Map<K, V>.getOrOther(key: K, other: K): V? {
         return if (key == other) get(key) else get(key) ?: get(other)
@@ -403,8 +400,6 @@ object BlockStateInfoResolver {
 
         // matches if the string is "default", or if it matches "key=value,key2=value2,etc"
         val stateRegex: Predicate<String> = Pattern.compile("^(default|\\w+=[^,=]+(,\\w+=[^,=]+)*)$").asPredicate()
-        // matches the format of a resource location ("namespace:path")
-        val resourceRegex: Predicate<String> = Pattern.compile("^[a-z_]+:[a-z_0-9/]+$").asPredicate()
 
         val blockValues = listOf("mass", "friction", "elasticity", "hardness", "no_collision", "shape_override")
         val mediumValues = listOf("drag", "shape")
@@ -593,7 +588,7 @@ object BlockStateInfoResolver {
             }
 
             val id = idType.getId(json)
-            if (!resourceRegex.test(id)) {
+            if (!ResourceLocation.isValidResourceLocation(id)) {
                 logger.error("error while parsing entry: $id is not a valid id!")
                 return
             }
@@ -699,10 +694,9 @@ object BlockStateInfoResolver {
                 )
             }
 
-            val noCollision = json["no_collision"]?.asBoolean ?: false
             val shapeOverride = json["shape_override"]?.let { parseShape(it) }
 
-            return LiquidStateProperties(density, dragCoefficient, velocity, noCollision, shapeOverride)
+            return LiquidStateProperties(density, dragCoefficient, velocity, shapeOverride)
         }
 
         private fun parseShape(jsonArray: JsonElement): AABBic? =
@@ -719,24 +713,20 @@ object BlockStateInfoResolver {
             if (json.has("exclude") && json.get("exclude").isJsonArray) {
                 val exclusionArray = json.get("exclude").asJsonArray
                 exclusionArray.filter { it.isJsonPrimitive && it.asJsonPrimitive.isString }.forEach {
-                    if (resourceRegex.test(it.asString)) set.add(ResourceLocation.of(it.asString, ':'))
+                    if (ResourceLocation.isValidResourceLocation(it.asString)) set.add(ResourceLocation.of(it.asString, ':'))
                 }
             }
             return set.toSet()
         }
     }
 
-    fun getFluidState(fluidState: FluidState): LiquidState {
+    fun fluidBox(fluidState: FluidState): AABBic {
         val fluidHeight = if (fluidState.isSource) {
             15
         } else {
             ((fluidState.ownHeight * 16.0).roundToInt() - 1).coerceIn(0, 15)
         }
-        val fluidBox = AABBi(0, 0, 0, 15, fluidHeight, 15)
-
-        return vsCore.newLiquidStateBuilder()
-            .boxShape(fluidBox)
-            .build()
+        return AABBi(0, 0, 0, 15, fluidHeight, 15)
     }
 
     enum class Composition {
@@ -760,15 +750,6 @@ object BlockStateInfoResolver {
         }
     }
 
-    fun buildMediumState(dragCoefficient: Double, shape: LiquidBlockShape): LiquidState {
-        return vsCore.newLiquidStateBuilder()
-            .density(0.0)
-            .dragCoefficient(dragCoefficient)
-            .shape(shape)
-            .velocity(Vector3d())
-            .build()
-    }
-
 
     fun buildMediumState(dragCoefficient: Double, shape: AABBic): LiquidState {
         return vsCore.newLiquidStateBuilder()
@@ -780,7 +761,35 @@ object BlockStateInfoResolver {
     }
 
     fun registerAllBlockStates(blockStates: Iterable<BlockState>) {
-        val voxelShapeToSolidShape: MutableMap<VoxelShape, SolidBlockShape?> = HashMap(BlockShapeUtil.generateCommonShapes())
+        val voxelShapeToSolidShape: MutableMap<VoxelShape, SolidBlockShape> = HashMap(BlockShapeUtil.generateCommonShapes())
+
+        fun generateShape(voxelShape: VoxelShape): SolidBlockShape =
+            if (voxelShapeToSolidShape.contains(voxelShape)) {
+                voxelShapeToSolidShape[voxelShape]!!
+            } else {
+                val generatedShape = BlockShapeUtil.generateShapeFromVoxel(voxelShape)
+                if (generatedShape != null) {
+                    voxelShapeToSolidShape[voxelShape] = generatedShape
+                    generatedShape
+                } else {
+                    BlockShapeUtil.fullBlockCollisionShape
+                }
+            }
+        fun buildDefaultSolidState(voxelShape: VoxelShape) =
+            vsCore.newSolidStateBuilder()
+                .shape(generateShape(voxelShape))
+                .mass(VSGameConfig.SERVER.defaultBlockMass)
+                .friction(VSGameConfig.SERVER.defaultBlockFriction)
+                .elasticity(VSGameConfig.SERVER.defaultBlockElasticity)
+                .hardness(VSGameConfig.SERVER.defaultBlockHardness)
+                .build()
+        fun buildDefaultLiquidState(shape: AABBic) =
+            vsCore.newLiquidStateBuilder()
+                .boxShape(shape)
+                .density(VSGameConfig.SERVER.defaultLiquidDensity)
+                .dragCoefficient(VSGameConfig.SERVER.defaultLiquidDragCoefficient)
+                .velocity(Vector3d())
+                .build()
 
         blockStates.forEach { blockState ->
             val vsiBlockState: VsiBlockState
@@ -789,26 +798,59 @@ object BlockStateInfoResolver {
             } else {
                 val composition: Composition = getComposition(blockState)
                 val voxelShape = BlockShapeUtil.getShapeForVS(blockState)
+                val props = getProperties(blockState)
+                val fluidState = blockState.fluidState
 
-                val solidState: SolidState
-                val liquidState: LiquidState
-                val mediumState: LiquidState // i need access to physics_api and physics_api_krunch to fully implement MediumState so rn we're just using a liquid instead
+                fun getSolidState() = if (props?.solid != null) {
+                    val shape: SolidBlockShape =
+                        if (props.solid.noCollision) BlockShapeUtil.noCollisionShape
+                        else if (props.solid.shapeOverride != null)
+                            vsCore.solidShapeUtils.generateShapeFromBoxes(mutableListOf(props.solid.shapeOverride)) ?: generateShape(voxelShape)
+                        else generateShape(voxelShape)
+
+                    vsCore.newSolidStateBuilder()
+                        .shape(shape)
+                        .mass(props.solid.mass)
+                        .friction(props.solid.friction)
+                        .elasticity(props.solid.elasticity)
+                        .hardness(props.solid.hardness)
+                        .build()
+                } else buildDefaultSolidState(voxelShape)
+
+                // todo change liquid stuff here to use LiquidBlockShape instead of AABBi?
+                fun getLiquidState() = if (props?.liquid != null) {
+                    val shape: AABBic = props.liquid.shapeOverride ?: fluidBox(fluidState)
+
+                    vsCore.newLiquidStateBuilder()
+                        .boxShape(shape)
+                        .density(props.liquid.density)
+                        .dragCoefficient(props.liquid.dragCoefficient)
+                        .velocity(props.liquid.velocity)
+                        .build()
+                } else buildDefaultLiquidState(fluidBox(fluidState))
 
                 when (composition) {
                     Composition.SOLID -> {
+                        val mediumState = if (props?.medium != null) {
+                            buildMediumState(props.medium.dragCoefficient, props.medium.shape ?: BlockShapeUtil.fullLodBoundingBox)
+                        } else null
 
+                        vsiBlockState = VsiBlockState(getSolidState(), mediumState)
                     }
                     Composition.MIXED -> {
-
+                        vsiBlockState = VsiBlockState(getSolidState(), getLiquidState())
                     }
                     Composition.LIQUID -> {
-
+                        vsiBlockState = VsiBlockState(null, getLiquidState())
                     }
                 }
             }
-
-
+            mcState2VsState[blockState] = vsiBlockState
         }
+
+        val event = RegisterBlockStateEventImpl()
+        ValkyrienSkiesMod.api.registerBlockStateEvent.emit(event)
+        mcState2VsState.putAll(event.toRegister)
 
     }
 
