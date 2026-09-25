@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import net.minecraft.ChatFormatting
 import net.minecraft.commands.arguments.blocks.BlockStateParser
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
@@ -26,11 +27,12 @@ import org.valkyrienskies.core.api.physics.blockstates.DisplacementState
 import org.valkyrienskies.core.api.physics.blockstates.SolidBlockShape
 import org.valkyrienskies.core.api.physics.blockstates.SolidState
 import org.valkyrienskies.core.internal.physics.blockstates.VsiBlockState
-import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
 import org.valkyrienskies.mod.api_impl.events.RegisterBlockStateEventImpl
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.config.MassDatapackResolver.decideDefaultPriority
+import org.valkyrienskies.mod.common.networking.PacketSyncBlockStateProperties
 import org.valkyrienskies.mod.common.util.BlockShapeUtil
+import org.valkyrienskies.mod.common.util.MinecraftPlayer
 import org.valkyrienskies.mod.common.vsCore
 import org.valkyrienskies.mod.util.logger
 import oshi.util.tuples.Pair
@@ -185,6 +187,9 @@ object BlockStateInfoResolver {
         return if (key == other) get(key) else get(key) ?: get(other)
     }
 
+    var hasRegistered = false
+        private set
+
     val loader get() = BlockStateInfoDataLoader()
 
     fun loadTags() {
@@ -304,11 +309,6 @@ object BlockStateInfoResolver {
     fun getProperties(raw: String): BlockStateProperties? {
         val string = blockStateToString(raw)
         return blockState2Properties[string.a]?.getOrOther(string.b, "default")
-    }
-
-    fun BlockState.getBlockType(): VsiBlockType? {
-        val vsState = mcState2VsState[this] ?: return null
-        return vsCore.blockTypes.getType(vsState)
     }
 
     class BlockStateInfoDataLoader : SimpleJsonResourceReloadListener(Gson(), "vs_mass") {
@@ -687,11 +687,7 @@ object BlockStateInfoResolver {
             val velocity = if (velocityArray != null) {
                 Vector3d(velocityArray[0].asDouble, velocityArray[1].asDouble, velocityArray[2].asDouble)
             } else {
-                Vector3d(
-                    VSGameConfig.SERVER.defaultLiquidVelocityX,
-                    VSGameConfig.SERVER.defaultLiquidVelocityY,
-                    VSGameConfig.SERVER.defaultLiquidVelocityZ,
-                )
+                Vector3d()
             }
 
             val shapeOverride = json["shape_override"]?.let { parseShape(it) }
@@ -749,7 +745,6 @@ object BlockStateInfoResolver {
             else -> Composition.SOLID
         }
     }
-
 
     fun buildMediumState(dragCoefficient: Double, shape: AABBic): LiquidState {
         return vsCore.newLiquidStateBuilder()
@@ -851,11 +846,45 @@ object BlockStateInfoResolver {
         val event = RegisterBlockStateEventImpl()
         ValkyrienSkiesMod.api.registerBlockStateEvent.emit(event)
         mcState2VsState.putAll(event.toRegister)
+    }
 
+    fun syncBlockStates(player: MinecraftPlayer) {
+        logger.info("Syncing ${mcState2VsState.size} blockstates to ${player.uuid}")
+        with(vsCore.simplePacketNetworking) {
+            val packetMap = blockState2Properties.mapKeys { it.key.toString() }
+            PacketSyncBlockStateProperties(
+                packetMap,
+                VSGameConfig.SERVER.defaultBlockMass,
+                VSGameConfig.SERVER.defaultBlockFriction,
+                VSGameConfig.SERVER.defaultBlockElasticity,
+                VSGameConfig.SERVER.defaultLiquidDensity
+            ).sendToClient(player)
+        }
+    }
+
+    fun clearBlockStates(player: MinecraftPlayer) {
+        logger.info("Clearing synced blockstates from ${player.uuid}")
+        with(vsCore.simplePacketNetworking) {
+            PacketSyncBlockStateProperties().sendToClient(player)
+        }
     }
 
     fun JsonObject.hasAny(members: Iterable<String>): Boolean = members.any { has(it) }
     fun JsonObject.hasAny(vararg members: String): Boolean = hasAny(members.asIterable())
+
+
+    @JvmStatic
+    fun getColorForMass(massKg: Double): ChatFormatting {
+        return when (massKg) {
+            404.0 -> ChatFormatting.DARK_RED
+            in 0.0..<25.0 -> ChatFormatting.GRAY
+            in 25.0..<50.0 -> ChatFormatting.LIGHT_PURPLE
+            in 50.0..<600.0 -> ChatFormatting.AQUA
+            in 600.0..<2500.0 -> ChatFormatting.GREEN
+            in 2500.0..<6000.0 -> ChatFormatting.YELLOW
+            else -> ChatFormatting.RED
+        }
+    }
 
     private val logger by logger()
 

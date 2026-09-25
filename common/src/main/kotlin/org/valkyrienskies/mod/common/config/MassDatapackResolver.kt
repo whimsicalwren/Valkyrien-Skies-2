@@ -21,7 +21,6 @@ import net.minecraft.world.level.material.Fluid
 import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.level.material.Fluids
 import net.minecraft.world.phys.shapes.VoxelShape
-import org.jetbrains.annotations.ApiStatus
 import org.joml.Vector3d
 import org.joml.primitives.AABBi
 import org.joml.primitives.AABBic
@@ -32,12 +31,9 @@ import org.valkyrienskies.core.api.physics.blockstates.SolidBlockShape
 import org.valkyrienskies.core.internal.physics.blockstates.VsiBlockState
 import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
 import org.valkyrienskies.mod.api_impl.events.RegisterBlockStateEventImpl
-import org.valkyrienskies.mod.client.ClientBlockInfo
 import org.valkyrienskies.mod.common.BlockStateInfoProvider
 import org.valkyrienskies.mod.common.ValkyrienSkiesMod
 import org.valkyrienskies.mod.common.hooks.VSGameEvents
-import org.valkyrienskies.mod.common.networking.PacketSyncBlockStateInfo
-import org.valkyrienskies.mod.common.util.MinecraftPlayer
 import org.valkyrienskies.mod.common.vsCore
 import org.valkyrienskies.mod.mixin.accessors.world.level.block.SlabBlockAccessor
 import org.valkyrienskies.mod.mixin.accessors.world.level.block.StairBlockAccessor
@@ -459,35 +455,6 @@ object MassDatapackResolver : BlockStateInfoProvider {
         registeredBlocks = true
     }
 
-    /**
-     * For internal use only, used to sync blockstate info from server to client and should not be called otherwise.
-     */
-    @ApiStatus.Internal
-    fun syncBlockStates(player: MinecraftPlayer) {
-        logger.info("Syncing ${mcBlockStateToVs.size} blockstates to ${player.uuid}")
-        with(vsCore.simplePacketNetworking) {
-            val resourceLoc2VS: Map<String, ClientBlockInfo> =
-                mcBlockStateToVs.entries.associate { (blockState, vsState) ->
-                    val id = BuiltInRegistries.BLOCK.getKey(blockState.block)
-                    val clientInfo = ClientBlockInfo(
-                        getBlockStateMass(blockState) ?: VSGameConfig.SERVER.defaultBlockMass,
-                        vsState.solidState?.friction ?: VSGameConfig.SERVER.defaultBlockFriction,
-                        vsState.solidState?.elasticity ?: VSGameConfig.SERVER.defaultBlockElasticity,
-                    )
-                    id.toString() to clientInfo
-                }.toMap()
-
-            PacketSyncBlockStateInfo(resourceLoc2VS).sendToClient(player)
-        }
-    }
-
-    @ApiStatus.Internal
-    fun clearBlockStates(player: MinecraftPlayer) {
-        logger.info("Clearing synced blockstates from ${player.uuid}")
-        with(vsCore.simplePacketNetworking) {
-            PacketSyncBlockStateInfo(HashMap()).sendToClient(player)
-        }
-    }
 
     private fun runRegisterBlockStateEvent() {
         val event = RegisterBlockStateEventImpl()

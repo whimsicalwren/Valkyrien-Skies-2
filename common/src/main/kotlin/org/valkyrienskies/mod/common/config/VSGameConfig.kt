@@ -61,6 +61,16 @@ object VSGameConfig {
                 description = "Use Imperial Units to show Mass"
             )
             var useImperialUnits = false
+
+            @ConfigEntry(
+                "Change the color of the mass tooltip depending on the value."
+            )
+            var detailedMassTooltip = true
+
+            @ConfigEntry(
+                "Show all properties (mass, friction, elasticity) when the shift key is pressed."
+            )
+            var showAllProperties = true
         }
 
         class BLOCKTINT {
@@ -433,18 +443,6 @@ object VSGameConfig {
             description = "Default drag coefficient for liquids. Higher values slow down ships more when they pass through liquids."
         )
         var defaultLiquidDragCoefficient = 0.3
-
-        @ConfigEntry(
-            description = "Default liquid velocity vector. This represents how much the liquid moves, affecting the ship."
-        )
-        var defaultLiquidVelocityX = 0.0
-        var defaultLiquidVelocityY = 0.0
-        var defaultLiquidVelocityZ = 0.0
-
-        @ConfigEntry(
-            description = "Whether to use the new datapack system or legacy system."
-        )
-        var useLegacyDatapackSystem = false
 
         @ConfigEntry(
             description = "Target velocity (m/s) a piston push/pull applies to a ship's contact point"
