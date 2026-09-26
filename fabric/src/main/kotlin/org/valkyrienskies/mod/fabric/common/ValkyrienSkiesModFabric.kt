@@ -274,7 +274,7 @@ class ValkyrienSkiesModFabric : ModInitializer {
         ServerPlayConnectionEvents.JOIN.register { handler, _, _ ->
             if (handler.player is ServerPlayer) {
                 val player: MinecraftPlayer = handler.player.playerWrapper
-                if (VSGameConfig.SERVER.allowBlockInfo) {
+                if (VSGameConfig.SERVER.blockProperties.allowBlockInfo) {
                     BlockStateInfoResolver.syncBlockStates(player)
                 } else {
                     BlockStateInfoResolver.clearBlockStates(player)

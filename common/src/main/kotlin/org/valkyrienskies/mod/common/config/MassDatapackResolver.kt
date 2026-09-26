@@ -168,9 +168,9 @@ object MassDatapackResolver : BlockStateInfoProvider {
 
         private fun parse(element: JsonElement, origin: ResourceLocation) {
             val tag = element.asJsonObject["tag"]?.asString
-            val weight = element.asJsonObject["mass"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockMass
-            val friction = element.asJsonObject["friction"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockFriction
-            val elasticity = element.asJsonObject["elasticity"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockElasticity
+            val weight = element.asJsonObject["mass"]?.asDouble ?: VSGameConfig.SERVER.blockProperties.defaultBlockMass
+            val friction = element.asJsonObject["friction"]?.asDouble ?: VSGameConfig.SERVER.blockProperties.defaultBlockFriction
+            val elasticity = element.asJsonObject["elasticity"]?.asDouble ?: VSGameConfig.SERVER.blockProperties.defaultBlockElasticity
 
             val priority = element.asJsonObject["priority"]?.asInt ?: decideDefaultPriority(origin)
 
@@ -367,8 +367,8 @@ object MassDatapackResolver : BlockStateInfoProvider {
                 newFluidBlockState
             } else {
                 if (isLiquid) {
-                    val density = blockStateInfo?.mass ?: VSGameConfig.SERVER.defaultBlockMass
-                    val dragCoefficient = blockStateInfo?.friction ?: VSGameConfig.SERVER.defaultBlockFriction
+                    val density = blockStateInfo?.mass ?: VSGameConfig.SERVER.blockProperties.defaultBlockMass
+                    val dragCoefficient = blockStateInfo?.friction ?: VSGameConfig.SERVER.blockProperties.defaultBlockFriction
                     val newFluidBlockState = vsCore.newLiquidStateBuilder()
                         .boxShape(fluidBox)
                         .density(density)
@@ -382,7 +382,7 @@ object MassDatapackResolver : BlockStateInfoProvider {
                     //default
                     val newFluidBlockState = vsCore.newLiquidStateBuilder()
                         .boxShape(fluidBox)
-                        .density(VSGameConfig.SERVER.defaultBlockMass)
+                        .density(VSGameConfig.SERVER.blockProperties.defaultBlockMass)
                         .dragCoefficient(liquidMaterialToDensityMap[Fluids.WATER]!!.second)
                         .velocity(Vector3d())
                         .build()
@@ -432,10 +432,10 @@ object MassDatapackResolver : BlockStateInfoProvider {
                     // Create new solid block state
                     var solidState = vsCore.newSolidStateBuilder()
                         .shape(collisionShape)
-                        .mass(vsBlockStateInfo?.mass ?: VSGameConfig.SERVER.defaultBlockMass) // requires local core
-                        .elasticity(vsBlockStateInfo?.elasticity ?: VSGameConfig.SERVER.defaultBlockElasticity)
-                        .friction(vsBlockStateInfo?.friction ?: VSGameConfig.SERVER.defaultBlockFriction)
-                        .hardness(VSGameConfig.SERVER.defaultBlockHardness) // Unused for now, placeholder for later
+                        .mass(vsBlockStateInfo?.mass ?: VSGameConfig.SERVER.blockProperties.defaultBlockMass) // requires local core
+                        .elasticity(vsBlockStateInfo?.elasticity ?: VSGameConfig.SERVER.blockProperties.defaultBlockElasticity)
+                        .friction(vsBlockStateInfo?.friction ?: VSGameConfig.SERVER.blockProperties.defaultBlockFriction)
+                        .hardness(VSGameConfig.SERVER.blockProperties.defaultBlockHardness) // Unused for now, placeholder for later
                         .build()
 
                     val fluidState = if (!blockState.fluidState.isEmpty) {

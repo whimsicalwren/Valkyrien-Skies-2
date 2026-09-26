@@ -1,6 +1,5 @@
 package org.valkyrienskies.mod.common
 
-import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.LiquidBlock
 import net.minecraft.world.level.block.state.BlockState
 import org.valkyrienskies.core.internal.world.chunks.VsiBlockType
@@ -12,7 +11,7 @@ object DefaultBlockStateInfoProvider : BlockStateInfoProvider {
 
     override fun getBlockStateMass(blockState: BlockState): Double {
         if (blockState.isAir) return 0.0
-        return VSGameConfig.SERVER.defaultBlockMass
+        return VSGameConfig.SERVER.blockProperties.defaultBlockMass
     }
 
     override fun getBlockStateType(blockState: BlockState): VsiBlockType {

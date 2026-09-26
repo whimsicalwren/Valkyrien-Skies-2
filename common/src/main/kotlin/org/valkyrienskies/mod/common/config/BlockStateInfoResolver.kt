@@ -38,9 +38,11 @@ import oshi.util.tuples.Pair
 import java.util.function.Predicate
 import java.util.regex.Pattern
 import kotlin.math.roundToInt
+import kotlin.system.measureNanoTime
 
 // massive fucking file oml
 
+// region data classes
 /**
  * @see [SolidState]
  */
@@ -67,15 +69,6 @@ data class SolidStateProperties (
         result = 31 * result + noCollision.hashCode()
         return result
     }
-
-    companion object {
-        fun defaultProperties(): SolidStateProperties = SolidStateProperties(
-            VSGameConfig.SERVER.defaultBlockMass,
-            VSGameConfig.SERVER.defaultBlockFriction,
-            VSGameConfig.SERVER.defaultBlockElasticity,
-            VSGameConfig.SERVER.defaultBlockHardness
-        )
-    }
 }
 
 /**
@@ -101,14 +94,6 @@ data class LiquidStateProperties (
         result = 31 * result + shapeOverride.hashCode()
         return result
     }
-
-    companion object {
-        fun defaultProperties(): LiquidStateProperties = LiquidStateProperties(
-            VSGameConfig.SERVER.defaultLiquidDensity,
-            VSGameConfig.SERVER.defaultLiquidDragCoefficient,
-            Vector3d()
-        )
-    }
 }
 
 /**
@@ -126,10 +111,6 @@ data class DisplacementStateProperties (
 
     override fun hashCode(): Int {
         return shape.hashCode()
-    }
-
-    companion object {
-        fun defaultProperties(): DisplacementStateProperties = DisplacementStateProperties()
     }
 }
 
@@ -152,10 +133,6 @@ data class MediumStateProperties (
         result = 31 * result + shape.hashCode()
         return result
     }
-
-    companion object {
-        fun defaultProperties(): MediumStateProperties = MediumStateProperties(VSGameConfig.SERVER.defaultLiquidDragCoefficient)
-    }
 }
 
 data class BlockStateProperties (
@@ -166,18 +143,54 @@ data class BlockStateProperties (
     val medium: MediumStateProperties? = null,
 )
 
-data class TagProperties (
-    val properties: BlockStateProperties,
+data class PendingSolidStateProperties(
+    val mass: NumericValue,
+    val friction: NumericValue,
+    val elasticity: NumericValue,
+    val hardness: NumericValue,
+    val noCollision: Boolean = false,
+    val shapeOverride: AABBic? = null
+)
+
+data class PendingLiquidStateProperties(
+    val density: NumericValue,
+    val dragCoefficient: NumericValue,
+    val velocity: Vector3d,
+    val shapeOverride: AABBic? = null
+)
+
+data class PendingMediumStateProperties(
+    val dragCoefficient: NumericValue,
+    val shape: AABBic? = null
+)
+
+data class PendingBlockStateProperties(
+    val priority: Int,
+    val solid: PendingSolidStateProperties? = null,
+    val liquid: PendingLiquidStateProperties? = null,
+    val displacement: DisplacementStateProperties? = null,
+    val medium: PendingMediumStateProperties? = null
+)
+
+data class PendingTagProperties(
+    val properties: PendingBlockStateProperties,
     val exclude: Set<ResourceLocation>,
     val block: Boolean
 )
+
+sealed class NumericValue {
+    data class Literal(val value: Double) : NumericValue()
+    data class Dependent(val targetId: ResourceLocation, val targetState: String, val mult: Double) : NumericValue()
+}
+// endregion
 
 /**
  * todo this is a reminder to myself to write docs for the mass system
  */
 object BlockStateInfoResolver {
     private val blockState2Properties: MutableMap<ResourceLocation, MutableMap<String, BlockStateProperties>> = HashMap()
-    private val tag2Properties: MutableMap<ResourceLocation, TagProperties> = HashMap()
+    private val pendingBlockState2Properties: MutableMap<ResourceLocation, MutableMap<String, PendingBlockStateProperties>> = HashMap()
+    private val tag2Properties: MutableMap<ResourceLocation, PendingTagProperties> = HashMap()
     private val mcState2VsState: MutableMap<BlockState, VsiBlockState> = HashMap()
 
     val blockStateData: Collection<VsiBlockState> = mcState2VsState.values
@@ -192,7 +205,9 @@ object BlockStateInfoResolver {
     val loader get() = BlockStateInfoDataLoader()
 
     fun loadTags() {
-        logger.info("Loading ${tag2Properties.size} tag property entries.")
+        logger.info("Loading tag entries.")
+        var tagsLoaded = 0
+        var blocksLoaded = 0
         tag2Properties.forEach { (tagId, tagProperties) ->
             val tag = if (tagProperties.block) {
                 BuiltInRegistries.BLOCK.getTag(TagKey.create(Registries.BLOCK, tagId))
@@ -210,15 +225,108 @@ object BlockStateInfoResolver {
                     return@forEach
                 }
 
+                tagsLoaded++
+
                 tag.get().forEach {
                     val id = if (tagProperties.block)
                         BuiltInRegistries.BLOCK.getKey(it.value() as Block)
                     else
                         BuiltInRegistries.FLUID.getKey(it.value() as Fluid)
                     if (!tagProperties.exclude.contains(id)) {
-                        putProperties(id, "default", tagProperties.properties)
+                        blocksLoaded++
+                        putPendingProperties(id, "default", tagProperties.properties)
                     }
                 }
+            }
+        }
+
+        logger.info("Loaded $tagsLoaded tag entries (properties for $blocksLoaded blocks).")
+        resolveAll()
+    }
+
+    /**
+     * Resolve all values.
+     * **This can take extremely long if there are deep dependency chains!**
+     */
+    fun resolveAll() {
+        if (pendingBlockState2Properties.isEmpty()) return
+        logger.info("Resolving all values. This may take a while if there are a large amount of dependent values!")
+
+        val unresolvedCount: Int
+        val elapsedNanos = measureNanoTime {
+            blockState2Properties.clear()
+
+            var unresolved = pendingBlockState2Properties.flatMap { (id, states) ->
+                states.map { (state, props) -> Triple(id, state, props) }
+            }
+
+            var progress = true
+            while (unresolved.isNotEmpty() && progress) {
+                progress = false
+                val stillUnresolved = mutableListOf<Triple<ResourceLocation, String, PendingBlockStateProperties>>()
+
+                for ((id, state, pending) in unresolved) {
+                    val resolved = resolve(pending, false)
+                    if (resolved != null) {
+                        putProperties(id, state, resolved)
+                        progress = true
+                    } else {
+                        stillUnresolved.add(Triple(id, state, pending))
+                    }
+                }
+                unresolved = stillUnresolved
+            }
+
+            unresolved.forEach { (id, state, pending) ->
+                logger.error("couldn't fully resolve dependent values for $id[$state] due to a circular or missing reference, falling back to defaults for unresolved fields.")
+                putProperties(id, state, resolve(pending, true)!!) // force guarantees a non-null value
+            }
+
+            unresolvedCount = unresolved.size
+            pendingBlockState2Properties.clear()
+        }
+
+        logger.info("Resolving all values took %.3f seconds (%d unresolved).".format(elapsedNanos / 1_000_000_000.0, unresolvedCount))
+    }
+
+    private fun resolve(pending: PendingBlockStateProperties, force: Boolean): BlockStateProperties? {
+        val solid = pending.solid?.let { resolveSolid(it, force) ?: return null }
+        val liquid = pending.liquid?.let { resolveLiquid(it, force) ?: return null }
+        val medium = pending.medium?.let { resolveMedium(it, force) ?: return null }
+        return BlockStateProperties(pending.priority, solid, liquid, pending.displacement, medium)
+    }
+
+    private fun resolveSolid(p: PendingSolidStateProperties, force: Boolean): SolidStateProperties? {
+        val mass = resolveValue(p.mass, VSGameConfig.SERVER.blockProperties.defaultBlockMass, force) { it.solid?.mass } ?: return null
+        val friction = resolveValue(p.friction, VSGameConfig.SERVER.blockProperties.defaultBlockFriction, force) { it.solid?.friction } ?: return null
+        val elasticity = resolveValue(p.elasticity, VSGameConfig.SERVER.blockProperties.defaultBlockElasticity, force) { it.solid?.elasticity } ?: return null
+        val hardness = resolveValue(p.hardness, VSGameConfig.SERVER.blockProperties.defaultBlockHardness, force) { it.solid?.hardness } ?: return null
+        return SolidStateProperties(mass, friction, elasticity, hardness, p.noCollision, p.shapeOverride)
+    }
+
+    private fun resolveLiquid(p: PendingLiquidStateProperties, force: Boolean): LiquidStateProperties? {
+        val density = resolveValue(p.density, VSGameConfig.SERVER.blockProperties.defaultLiquidDensity, force) { it.liquid?.density } ?: return null
+        val drag = resolveValue(p.dragCoefficient, VSGameConfig.SERVER.blockProperties.defaultLiquidDragCoefficient, force) { it.liquid?.dragCoefficient } ?: return null
+        return LiquidStateProperties(density, drag, p.velocity, p.shapeOverride)
+    }
+
+    private fun resolveMedium(p: PendingMediumStateProperties, force: Boolean): MediumStateProperties? {
+        val drag = resolveValue(p.dragCoefficient, VSGameConfig.SERVER.blockProperties.defaultLiquidDragCoefficient, force) { it.medium?.dragCoefficient } ?: return null
+        return MediumStateProperties(drag, p.shape)
+    }
+
+    private fun resolveValue(value: NumericValue, default: Double, force: Boolean, extractor: (BlockStateProperties) -> Double?): Double? = when (value) {
+        is NumericValue.Literal -> value.value
+        is NumericValue.Dependent -> {
+            val target = blockState2Properties[value.targetId]?.getOrOther(value.targetState, "default")
+            val resolved = target?.let(extractor)?.let { it * value.mult }
+            when {
+                resolved != null -> resolved
+                force -> {
+                    logger.error("could not resolve dependent value pointing at ${value.targetId}[${value.targetState}], using default $default.")
+                    default
+                }
+                else -> null
             }
         }
     }
@@ -272,18 +380,23 @@ object BlockStateInfoResolver {
         }
     }
 
-    private fun putProperties(id: String, key: String, propertiesToPut: BlockStateProperties) {
-        putProperties(ResourceLocation.of(id, ':'), key, propertiesToPut)
+    private fun putPendingProperties(id: ResourceLocation, key: String, propertiesToPut: PendingBlockStateProperties) {
+        pendingBlockState2Properties.computeIfAbsent(id) { mutableMapOf() }.compute(key) { _, properties ->
+            if (properties == null) propertiesToPut
+            else if (propertiesToPut.priority > properties.priority) propertiesToPut
+            else properties
+        }
     }
 
-    private fun putTagProperties(id: String, propertiesToPut: TagProperties) {
+    private fun putPendingProperties(id: String, key: String, propertiesToPut: PendingBlockStateProperties) {
+        putPendingProperties(ResourceLocation.of(id, ':'), key, propertiesToPut)
+    }
+
+    private fun putTagProperties(id: String, propertiesToPut: PendingTagProperties) {
         tag2Properties.compute(ResourceLocation.of(id, ':')) { _, properties ->
-            if (properties == null)
-                propertiesToPut
-            else {
-                if (propertiesToPut.properties.priority > properties.properties.priority) propertiesToPut
-                else properties
-            }
+            if (properties == null) propertiesToPut
+            else if (propertiesToPut.properties.priority > properties.properties.priority) propertiesToPut
+            else properties
         }
     }
 
@@ -303,6 +416,10 @@ object BlockStateInfoResolver {
     fun getProperties(blockState: BlockState): BlockStateProperties? {
         val string = blockStateToString(blockState)
         return blockState2Properties[string.a]?.getOrOther(string.b, "default")
+    }
+
+    fun getProperties(id: ResourceLocation): BlockStateProperties? {
+        return blockState2Properties[id]?.get("default")
     }
 
     fun getProperties(raw: String): BlockStateProperties? {
@@ -421,7 +538,7 @@ object BlockStateInfoResolver {
         /**
          * Determine the [Structure] of a property entry.
          */
-        private fun determineStructure(json: JsonObject, idType: IdType, id: String): Structure{
+        private fun determineStructure(json: JsonObject, idType: IdType, id: String): Structure {
             fun determineCompoundBlockStructure(json: JsonObject, id: String, tag: Boolean = false): Structure {
                 val hasSolid = json.has("solid")
                 val hasMedium = json.has("medium")
@@ -570,6 +687,30 @@ object BlockStateInfoResolver {
             }
         }
 
+        private fun parseNumericValue(element: JsonElement?, default: Double): NumericValue {
+            if (element == null) return NumericValue.Literal(default)
+            return when {
+                element.isJsonPrimitive && element.asJsonPrimitive.isNumber -> NumericValue.Literal(element.asDouble)
+                element.isJsonObject -> {
+                    val json = element.asJsonObject
+                    val target = json["value"]?.asString
+                    val mult = json["mult"]?.asDouble ?: 1.0
+
+                    if (target == null) {
+                        logger.error("no target value in dependent value, defaulting to $default")
+                        NumericValue.Literal(default)
+                    } else {
+                        val targetState = blockStateToString(target)
+                        NumericValue.Dependent(targetState.a, targetState.b, mult)
+                    }
+                }
+                else -> {
+                    logger.error("invalid numeric value format, using default $default.")
+                    NumericValue.Literal(default)
+                }
+            }
+        }
+
         /**
          * Parses a single entry for a block or fluid.
          */
@@ -609,10 +750,10 @@ object BlockStateInfoResolver {
 
             when (structure.type) {
                 StructureType.BLOCK_BASIC -> {
-                    putProperties(id, "default", BlockStateProperties(priority, parseSolid(json)))
+                    putPendingProperties(id, "default", PendingBlockStateProperties(priority, parseSolid(json)))
                 }
                 StructureType.BLOCK_COMPOUND -> {
-                    putProperties(id, "default", BlockStateProperties(priority,
+                    putPendingProperties(id, "default", PendingBlockStateProperties(priority,
                         solid = if (json.has("solid")) parseSolid(json.getAsJsonObject("solid")) else null,
                         medium = if (json.has("medium")) parseMedium(json.getAsJsonObject("medium")) else null
                     ))
@@ -621,11 +762,11 @@ object BlockStateInfoResolver {
                     structure.state2StructureType!!.forEach { (state, type) ->
                         when (type) {
                             StructureType.BLOCK_BASIC -> {
-                                putProperties(id, state, BlockStateProperties(priority, parseSolid(json.getAsJsonObject(state))))
+                                putPendingProperties(id, state, PendingBlockStateProperties(priority, parseSolid(json.getAsJsonObject(state))))
                             }
                             StructureType.BLOCK_COMPOUND -> {
                                 val stateJson = json.getAsJsonObject(state)
-                                putProperties(id, "default", BlockStateProperties(priority,
+                                putPendingProperties(id, "default", PendingBlockStateProperties(priority,
                                     solid = if (stateJson.has("solid")) parseSolid(stateJson.getAsJsonObject("solid")) else null,
                                     medium = if (stateJson.has("medium")) parseMedium(stateJson.getAsJsonObject("medium")) else null
                                 ))
@@ -637,50 +778,48 @@ object BlockStateInfoResolver {
                     }
                 }
                 StructureType.FLUID_BASIC -> {
-                    putProperties(id, "default", BlockStateProperties(priority, liquid = parseLiquid(json)))
+                    putPendingProperties(id, "default", PendingBlockStateProperties(priority, liquid = parseLiquid(json)))
                 }
                 StructureType.FLUID_STATES -> { // type really doesn't matter here because fluids can only be parsed one way, but i don't feel like adding a list of states to this, map works just fine
                     structure.state2StructureType!!.keys.forEach { state ->
-                        putProperties(id, state, BlockStateProperties(priority, liquid = parseLiquid(json.getAsJsonObject(state))))
+                        putPendingProperties(id, state, PendingBlockStateProperties(priority, liquid = parseLiquid(json.getAsJsonObject(state))))
                     }
                 }
                 StructureType.BLOCK_TAG_BASIC -> {
-                    putTagProperties(id, TagProperties(BlockStateProperties(priority, parseSolid(json)), parseTagExclusions(json), true))
+                    putTagProperties(id, PendingTagProperties(PendingBlockStateProperties(priority, parseSolid(json)), parseTagExclusions(json), true))
                 }
                 StructureType.BLOCK_TAG_COMPOUND -> {
-                    putTagProperties(id, TagProperties(BlockStateProperties(priority,
+                    putTagProperties(id, PendingTagProperties(PendingBlockStateProperties(priority,
                         solid = if (json.has("solid")) parseSolid(json.getAsJsonObject("solid")) else null,
                         medium = if (json.has("medium")) parseMedium(json.getAsJsonObject("medium")) else null
                     ), parseTagExclusions(json), true))
                 }
                 StructureType.FLUID_TAG_BASIC -> {
-                    putTagProperties(id, TagProperties(BlockStateProperties(priority, liquid = parseLiquid(json)), parseTagExclusions(json), false))
+                    putTagProperties(id, PendingTagProperties(PendingBlockStateProperties(priority, liquid = parseLiquid(json)), parseTagExclusions(json), false))
                 }
             }
         }
 
-        private fun parseSolid(json: JsonObject): SolidStateProperties {
-            val mass = json["mass"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockMass
-            val friction = json["friction"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockFriction
-            val elasticity = json["elasticity"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockElasticity
-            val hardness = json["hardness"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockHardness // i know hardness isnt implemented yet really but im putting it anyways
+        private fun parseSolid(json: JsonObject): PendingSolidStateProperties {
+            val mass = parseNumericValue(json["mass"], VSGameConfig.SERVER.blockProperties.defaultBlockMass)
+            val friction = parseNumericValue(json["friction"], VSGameConfig.SERVER.blockProperties.defaultBlockFriction)
+            val elasticity = parseNumericValue(json["elasticity"], VSGameConfig.SERVER.blockProperties.defaultBlockElasticity)
+            val hardness = parseNumericValue(json["hardness"], VSGameConfig.SERVER.blockProperties.defaultBlockHardness)
             val noCollision = json["no_collision"]?.asBoolean ?: false
-
             val shapeOverride = json["shape_override"]?.let { parseShape(it) }
-
-            return SolidStateProperties(mass, friction, elasticity, hardness, noCollision, shapeOverride)
+            return PendingSolidStateProperties(mass, friction, elasticity, hardness, noCollision, shapeOverride)
         }
 
-        private fun parseMedium(json: JsonObject): MediumStateProperties {
-            val dragCoefficient = json["drag"]?.asDouble ?: VSGameConfig.SERVER.defaultLiquidDragCoefficient
+        private fun parseMedium(json: JsonObject): PendingMediumStateProperties {
+            val dragCoefficient = parseNumericValue(json["drag"], VSGameConfig.SERVER.blockProperties.defaultLiquidDragCoefficient)
             val shapeOverride = json["shape_override"]?.let { parseShape(it) }
 
-            return MediumStateProperties(dragCoefficient, shapeOverride)
+            return PendingMediumStateProperties(dragCoefficient, shapeOverride)
         }
 
-        private fun parseLiquid(json: JsonObject): LiquidStateProperties {
-            val density = json["density"]?.asDouble ?: VSGameConfig.SERVER.defaultLiquidDensity
-            val dragCoefficient = json["drag"]?.asDouble ?: VSGameConfig.SERVER.defaultLiquidDragCoefficient
+        private fun parseLiquid(json: JsonObject): PendingLiquidStateProperties {
+            val density = parseNumericValue(json["density"], VSGameConfig.SERVER.blockProperties.defaultLiquidDensity)
+            val dragCoefficient = parseNumericValue(json["drag"], VSGameConfig.SERVER.blockProperties.defaultLiquidDragCoefficient)
 
             val velocityArray = json["velocity"]?.asJsonArray
             val velocity = if (velocityArray != null) {
@@ -691,7 +830,7 @@ object BlockStateInfoResolver {
 
             val shapeOverride = json["shape_override"]?.let { parseShape(it) }
 
-            return LiquidStateProperties(density, dragCoefficient, velocity, shapeOverride)
+            return PendingLiquidStateProperties(density, dragCoefficient, velocity, shapeOverride)
         }
 
         private fun parseShape(jsonArray: JsonElement): AABBic? =
@@ -772,16 +911,16 @@ object BlockStateInfoResolver {
         fun buildDefaultSolidState(voxelShape: VoxelShape) =
             vsCore.newSolidStateBuilder()
                 .shape(generateShape(voxelShape))
-                .mass(VSGameConfig.SERVER.defaultBlockMass)
-                .friction(VSGameConfig.SERVER.defaultBlockFriction)
-                .elasticity(VSGameConfig.SERVER.defaultBlockElasticity)
-                .hardness(VSGameConfig.SERVER.defaultBlockHardness)
+                .mass(VSGameConfig.SERVER.blockProperties.defaultBlockMass)
+                .friction(VSGameConfig.SERVER.blockProperties.defaultBlockFriction)
+                .elasticity(VSGameConfig.SERVER.blockProperties.defaultBlockElasticity)
+                .hardness(VSGameConfig.SERVER.blockProperties.defaultBlockHardness)
                 .build()
         fun buildDefaultLiquidState(shape: AABBic) =
             vsCore.newLiquidStateBuilder()
                 .boxShape(shape)
-                .density(VSGameConfig.SERVER.defaultLiquidDensity)
-                .dragCoefficient(VSGameConfig.SERVER.defaultLiquidDragCoefficient)
+                .density(VSGameConfig.SERVER.blockProperties.defaultLiquidDensity)
+                .dragCoefficient(VSGameConfig.SERVER.blockProperties.defaultLiquidDragCoefficient)
                 .velocity(Vector3d())
                 .build()
 
@@ -853,10 +992,10 @@ object BlockStateInfoResolver {
             val packetMap = blockState2Properties.mapKeys { it.key.toString() }
             PacketSyncBlockStateProperties(
                 packetMap,
-                VSGameConfig.SERVER.defaultBlockMass,
-                VSGameConfig.SERVER.defaultBlockFriction,
-                VSGameConfig.SERVER.defaultBlockElasticity,
-                VSGameConfig.SERVER.defaultLiquidDensity
+                VSGameConfig.SERVER.blockProperties.defaultBlockMass,
+                VSGameConfig.SERVER.blockProperties.defaultBlockFriction,
+                VSGameConfig.SERVER.blockProperties.defaultBlockElasticity,
+                VSGameConfig.SERVER.blockProperties.defaultLiquidDensity
             ).sendToClient(player)
         }
     }
