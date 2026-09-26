@@ -4,7 +4,6 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import net.minecraft.ChatFormatting
 import net.minecraft.commands.arguments.blocks.BlockStateParser
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
@@ -871,20 +870,6 @@ object BlockStateInfoResolver {
 
     fun JsonObject.hasAny(members: Iterable<String>): Boolean = members.any { has(it) }
     fun JsonObject.hasAny(vararg members: String): Boolean = hasAny(members.asIterable())
-
-
-    @JvmStatic
-    fun getColorForMass(massKg: Double): ChatFormatting {
-        return when (massKg) {
-            404.0 -> ChatFormatting.DARK_RED
-            in 0.0..<25.0 -> ChatFormatting.GRAY
-            in 25.0..<50.0 -> ChatFormatting.LIGHT_PURPLE
-            in 50.0..<600.0 -> ChatFormatting.AQUA
-            in 600.0..<2500.0 -> ChatFormatting.GREEN
-            in 2500.0..<6000.0 -> ChatFormatting.YELLOW
-            else -> ChatFormatting.RED
-        }
-    }
 
     private val logger by logger()
 
