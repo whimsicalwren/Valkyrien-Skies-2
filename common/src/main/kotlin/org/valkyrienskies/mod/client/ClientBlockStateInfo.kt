@@ -5,8 +5,8 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.material.FluidState
 import org.jetbrains.annotations.ApiStatus
 import org.valkyrienskies.mod.common.config.BlockStateInfoResolver
-import org.valkyrienskies.mod.common.config.BlockStateInfoResolver.blockStateToString
 import org.valkyrienskies.mod.common.config.BlockStateInfoResolver.getOrOther
+import org.valkyrienskies.mod.common.config.BlockStateInfoResolver.stateToString
 import org.valkyrienskies.mod.common.config.BlockStateProperties
 import org.valkyrienskies.mod.common.config.LiquidStateProperties
 import org.valkyrienskies.mod.common.config.SolidStateProperties
@@ -32,7 +32,7 @@ object ClientBlockStateInfo {
     }
 
     fun getProperties(blockState: BlockState): BlockStateProperties? {
-        val string = blockStateToString(blockState)
+        val string = stateToString(blockState)
         return blockState2Properties[string.a]?.getOrOther(string.b, "default")
     }
 
@@ -42,7 +42,7 @@ object ClientBlockStateInfo {
     }
 
     fun getProperties(fluidState: FluidState): BlockStateProperties? {
-        val string = BlockStateInfoResolver.blockStateToString(BlockStateInfoResolver.serializeFluid(fluidState))
+        val string = stateToString(BlockStateInfoResolver.serializeFluid(fluidState))
         return blockState2Properties[string.a]?.getOrOther(string.b, "default")
     }
 

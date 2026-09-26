@@ -400,9 +400,10 @@ object BlockStateInfoResolver {
         }
     }
 
-    fun blockStateToString(blockState: BlockState) = blockStateToString(BlockStateParser.serialize(blockState))
+    fun stateToString(blockState: BlockState) = stateToString(BlockStateParser.serialize(blockState))
+    fun stateToString(fluidState: FluidState) = stateToString(serializeFluid(fluidState))
 
-    fun blockStateToString(raw: String): Pair<ResourceLocation, String> {
+    fun stateToString(raw: String): Pair<ResourceLocation, String> {
         if (raw.indexOf('[') == -1) {
             return Pair(ResourceLocation.of(raw, ':'), "default")
             // if a blockstate has no properties, the parser will not append the brackets to it, so we can use that as a check
@@ -414,7 +415,12 @@ object BlockStateInfoResolver {
     }
 
     fun getProperties(blockState: BlockState): BlockStateProperties? {
-        val string = blockStateToString(blockState)
+        val string = stateToString(blockState)
+        return blockState2Properties[string.a]?.getOrOther(string.b, "default")
+    }
+
+    fun getProperties(fluidState: FluidState): BlockStateProperties? {
+        val string = stateToString(fluidState)
         return blockState2Properties[string.a]?.getOrOther(string.b, "default")
     }
 
@@ -423,7 +429,7 @@ object BlockStateInfoResolver {
     }
 
     fun getProperties(raw: String): BlockStateProperties? {
-        val string = blockStateToString(raw)
+        val string = stateToString(raw)
         return blockState2Properties[string.a]?.getOrOther(string.b, "default")
     }
 
@@ -700,7 +706,7 @@ object BlockStateInfoResolver {
                         logger.error("no target value in dependent value, defaulting to $default")
                         NumericValue.Literal(default)
                     } else {
-                        val targetState = blockStateToString(target)
+                        val targetState = stateToString(target)
                         NumericValue.Dependent(targetState.a, targetState.b, mult)
                     }
                 }
