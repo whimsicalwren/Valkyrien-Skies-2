@@ -54,6 +54,7 @@ private data class VSBlockStateInfo(
     val mass: Double,
     val friction: Double,
     val elasticity: Double,
+    val hardness: Double,
     val type: VsiBlockType?,
     val noCollision: Boolean?,
     val fluidBoundary: String?,
@@ -80,6 +81,9 @@ object MassDatapackResolver : BlockStateInfoProvider {
 
     fun getBlockStateElasticity(blockState: BlockState): Double? =
         map[BuiltInRegistries.BLOCK.getKey(blockState.block)]?.elasticity
+
+    fun getBlockStateHardness(blockState: BlockState): Double? =
+        map[BuiltInRegistries.BLOCK.getKey(blockState.block)]?.hardness
 
     override fun getBlockStateType(blockState: BlockState): VsiBlockType? {
         val vsState = mcBlockStateToVs[blockState] ?: return null
@@ -165,7 +169,7 @@ object MassDatapackResolver : BlockStateInfoProvider {
                             add(
                                 VSBlockStateInfo(
                                     BuiltInRegistries.BLOCK.getKey(it.value()), tagInfo.priority, tagInfo.mass, tagInfo.friction,
-                                    tagInfo.elasticity, tagInfo.type, tagInfo.noCollision, tagInfo.fluidBoundary
+                                    tagInfo.elasticity, tagInfo.hardness, tagInfo.type, tagInfo.noCollision, tagInfo.fluidBoundary
                                 )
                             )
                         }
@@ -195,6 +199,7 @@ object MassDatapackResolver : BlockStateInfoProvider {
             val weight = element.asJsonObject["mass"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockMass
             val friction = element.asJsonObject["friction"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockFriction
             val elasticity = element.asJsonObject["elasticity"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockElasticity
+            val hardness = element.asJsonObject["hardness"]?.asDouble ?: VSGameConfig.SERVER.defaultBlockHardness
 
             val priority = element.asJsonObject["priority"]?.asInt ?: decideDefaultPriority(origin)
 
@@ -205,12 +210,12 @@ object MassDatapackResolver : BlockStateInfoProvider {
             }
 
             if (tag != null) {
-                addToBeAddedTags(VSBlockStateInfo(ResourceLocation(tag), priority, weight, friction, elasticity, null, noCollision, fluidBoundary))
+                addToBeAddedTags(VSBlockStateInfo(ResourceLocation(tag), priority, weight, friction, elasticity, hardness, null, noCollision, fluidBoundary))
             } else {
                 val block = element.asJsonObject["block"]?.asString
                     ?: throw IllegalArgumentException("No block or tag in file $origin")
 
-                add(VSBlockStateInfo(ResourceLocation(block), priority, weight, friction, elasticity, null, noCollision, fluidBoundary))
+                add(VSBlockStateInfo(ResourceLocation(block), priority, weight, friction, elasticity, hardness, null, noCollision, fluidBoundary))
             }
         }
     }
@@ -477,7 +482,7 @@ object MassDatapackResolver : BlockStateInfoProvider {
                         })
                         .elasticity(vsBlockStateInfo?.elasticity ?: VSGameConfig.SERVER.defaultBlockElasticity)
                         .friction(vsBlockStateInfo?.friction ?: VSGameConfig.SERVER.defaultBlockFriction)
-                        .hardness(VSGameConfig.SERVER.defaultBlockHardness) // Unused for now, placeholder for later
+                        .hardness(vsBlockStateInfo?.hardness ?: VSGameConfig.SERVER.defaultBlockHardness) // Unused for now, placeholder for later
                         .build()
 
                     val fluidState = if (!blockState.fluidState.isEmpty) {
